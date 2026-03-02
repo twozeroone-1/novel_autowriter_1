@@ -1,5 +1,7 @@
 import streamlit as st
+import json
 import os
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -97,6 +99,23 @@ def main():
                     del st.session_state[key]
             st.rerun()
             
+        # 선택된 프로젝트 삭제 기능
+        with st.expander("🗑️ 현재 작품 삭제하기"):
+            st.warning(f"정말 '{st.session_state['current_project']}' 作品을 삭제하시겠습니까? (복구 불가)")
+            if st.button("네, 삭제합니다", type="primary", use_container_width=True):
+                target_dir = Path("data/projects") / st.session_state['current_project']
+                try:
+                    shutil.rmtree(target_dir)
+                    st.success(f"'{st.session_state['current_project']}' 작품이 성공적으로 삭제되었습니다.")
+                    # 세션 지우기 및 새로고침
+                    del st.session_state['current_project']
+                    for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"삭제 중 오류가 발생했습니다: {e}")
+                    
         st.divider()
         st.header("⚙️ API 및 모델 설정")
         current_api_key = os.getenv("GOOGLE_API_KEY", "")

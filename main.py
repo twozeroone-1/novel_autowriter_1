@@ -107,11 +107,17 @@ def main():
                 try:
                     shutil.rmtree(target_dir)
                     st.success(f"'{st.session_state['current_project']}' 작품이 성공적으로 삭제되었습니다.")
-                    # 세션 지우기 및 새로고침
+                    # 세션 지우기 및 초기화
                     del st.session_state['current_project']
                     for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
                         if key in st.session_state:
                             del st.session_state[key]
+                            
+                    # 삭제 후 남은 프로젝트가 있는지 확인 후 업데이트
+                    remaining_projects = get_project_list()
+                    if remaining_projects:
+                        st.session_state['current_project'] = remaining_projects[0]
+                    
                     st.rerun()
                 except Exception as e:
                     st.error(f"삭제 중 오류가 발생했습니다: {e}")

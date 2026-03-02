@@ -135,7 +135,7 @@ def main():
         st.divider()
         st.header("⚙️ API 및 모델 설정")
         current_api_key = os.getenv("GOOGLE_API_KEY", "")
-        new_api_key = st.text_input("🔑 Google API Key", value=current_api_key, type="password", help="발급받은 AI 기기를 입력하세요.")
+        new_api_key = st.text_input("🔑 Google API Key", value=current_api_key, type="password", help="여러 개의 키를 쉼표(,)로 구분하여 입력하시면 하나가 막혔을 때 다음 키로 자동 우회(Fallback)합니다.")
         if st.button("API 키 갱신", use_container_width=True):
             if new_api_key.strip():
                 set_env_variable("GOOGLE_API_KEY", new_api_key.strip())

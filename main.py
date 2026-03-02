@@ -324,6 +324,10 @@ def main():
             elif not user_instruction.strip():
                 st.warning("지시사항을 입력해 주세요.")
             else:
+                # [버그 픽스] 이전에 표시된 텍스트 에어리어의 상태값과 충돌하지 않도록 명시적으로 키 제거
+                if 'edited_draft' in st.session_state:
+                    del st.session_state['edited_draft']
+                    
                 with st.spinner(f"작가가 원고를 집필 중입니다 (목표: {target_length}자 내외)... ☕"):
                     draft = generator.create_chapter(user_instruction, target_length)
                     st.session_state['current_draft'] = draft

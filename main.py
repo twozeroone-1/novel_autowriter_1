@@ -39,7 +39,7 @@ def get_project_list():
     if not base_dir.exists():
         base_dir.mkdir(parents=True)
         return []
-    return [d.name for d in base_dir.iterdir() if d.is_dir()]
+    return [d.name for d in base_dir.iterdir() if d.is_dir() and d.name != "default_project"]
 
 def main():
     # 사이드바 (프로젝트 선택 및 환경설정)
@@ -50,15 +50,18 @@ def main():
         new_project_name = st.text_input("새 작품 이름 만들기", placeholder="예: 나의_판타지_소설")
         if st.button("➕ 새 작품 추가", use_container_width=True):
             if new_project_name.strip():
-                # 특수문자나 띄어쓰기 가공 처리 없이 통과 (폴더명으로 사용)
-                target_dir = Path("data/projects") / new_project_name.strip()
-                if not target_dir.exists():
-                    target_dir.mkdir(parents=True)
-                    st.session_state['current_project'] = new_project_name.strip()
-                    st.success(f"'{new_project_name}' 작품이 생성되었습니다.")
-                    st.rerun()
+                if new_project_name.strip() == "default_project":
+                    st.error("'default_project'는 예약된 이름입니다. 다른 이름을 사용해 주세요.")
                 else:
-                    st.error("이미 존재하는 작품 이름입니다.")
+                    # 특수문자나 띄어쓰기 가공 처리 없이 통과 (폴더명으로 사용)
+                    target_dir = Path("data/projects") / new_project_name.strip()
+                    if not target_dir.exists():
+                        target_dir.mkdir(parents=True)
+                        st.session_state['current_project'] = new_project_name.strip()
+                        st.success(f"'{new_project_name}' 작품이 생성되었습니다.")
+                        st.rerun()
+                    else:
+                        st.error("이미 존재하는 작품 이름입니다.")
             else:
                 st.warning("작품 이름을 입력해 주세요.")
                 

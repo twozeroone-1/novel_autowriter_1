@@ -170,7 +170,7 @@ def main():
             st.success(f"✅ 모델이 '{selected_model}'(으)로 변경되었습니다.")
             st.rerun()
             
-        st.link_button("🌐 토큰 잔여량 조회 (AI Studio)", "https://aistudio.google.com/app/plan_information", use_container_width=True)
+        st.link_button("🌐 토큰 잔여량 조회 (AI Studio)", "https://aistudio.google.com/app/usage?timeRange=last-28-days", use_container_width=True)
 
     # 선택된 프로젝트 기반으로 핵심 객체 초기화 (데이터 격리 방어선)
     generator = Generator(project_name=st.session_state['current_project'])

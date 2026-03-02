@@ -244,19 +244,61 @@ def main():
             st.success("이전 줄거리가 업데이트되었습니다.")
             
         st.divider()
-        # 등장인물 스키마 관리는 추후 마크다운 구조로 흡수되거나 부가 기능으로 뺄 예정이므로 우선 보존
+        # 등장인물 스키마 관리 (수동 편집 및 자동 추출)
         with st.expander("👥 등장인물 JSON 스키마 관리 (고급)"):
             import json
+            
+            st.markdown("### 1. 원터치 자동 추출 (AI 어시스턴트)")
+            st.info("위 '1. STORY BIBLE'에 작성된 세계관을 바탕으로 AI가 주요 인물을 자동으로 분석하여 아래 JSON 양식으로 채워줍니다.")
+            if st.button("✨ STORY BIBLE에서 모든 주요 등장인물 자동 추출", type="primary", use_container_width=True):
+                if not config.get("worldview", "").strip():
+                    st.warning("위의 STORY BIBLE 입력창이 비어 있습니다. 먼저 세계관이나 등장인물을 대략적으로 적어주세요.")
+                else:
+                    with st.spinner("AI가 세계관을 읽고 핵심 인물을 분석 중입니다... 🕵️"):
+                        try:
+                            # generator 로직을 호출하여 AI가 캐릭터 JSON 배열 생성
+                            extracted_json_str = generator.generate_characters(config["worldview"])
+                            
+                            # 생성된 문자열이 정상적인 JSON 구조인지 파싱 테스트
+                            parsed_chars = json.loads(extracted_json_str)
+                            
+                            # 통과했다면 파일에 저장하고 화면 세션을 리로드하기 위해 ContextManager 객체에 반영
+                            generator.ctx.save_characters(parsed_chars)
+                            st.success("캐릭터가 성공적으로 추출되어 저장되었습니다!")
+                            st.rerun() # 변경된 characters 파일을 다시 읽어오도록 화면 새로고침
+                        except json.JSONDecodeError:
+                            st.error("AI가 올바른 JSON 형식을 반환하지 못했습니다. 다시 시도해 주세요.")
+                            st.code(extracted_json_str) # 디버깅용으로 잘못된 결과를 보여줌
+                        except Exception as e:
+                            st.error(f"오류가 발생했습니다: {e}")
+            
+            st.divider()
+            st.markdown("### 2. 수동 입력 및 직접 편집")
+            st.info('''**[작성 예시]** 아래 양식을 복사하여 수정해 보세요.
+```json
+[
+  {
+    "id": "char_001",
+    "name": "주인공",
+    "role": "주인공",
+    "description": "차가운 성격이지만 내면은 따뜻함.",
+    "traits": ["냉혈안", "검술 천재"]
+  }
+]
+```''')
             characters = generator.ctx.get_characters()
             char_json_str = json.dumps(characters, ensure_ascii=False, indent=4) if characters else "[]"
-            chars_text = st.text_area("현재 등장인물 명단", value=char_json_str, height=200)
-            if st.button("💾 등장인물 수동 저장", key="save_char"):
+            chars_text = st.text_area("현재 등장인물 데이터 (JSON 편집기)", value=char_json_str, height=300)
+            
+            if st.button("💾 등장인물 정보 수동 저장", key="save_char"):
                 try:
                     parsed_chars = json.loads(chars_text)
                     generator.ctx.save_characters(parsed_chars)
-                    st.success("성공!")
+                    st.success("성공적으로 저장되었습니다!")
+                except json.JSONDecodeError:
+                    st.error("JSON 문법 오류입니다. 괄호나 따옴표가 맞는지 확인해 주세요.")
                 except Exception as e:
-                    st.error("JSON 문법 오류입니다.")
+                    st.error(f"알 수 없는 오류가 발생했습니다: {e}")
 
     with tab2:
         st.header("다음 회차 생성기")

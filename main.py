@@ -58,6 +58,10 @@ def main():
                     if not target_dir.exists():
                         target_dir.mkdir(parents=True)
                         st.session_state['current_project'] = new_project_name.strip()
+                        # 새 프로젝트 생성 시 이전 프로젝트의 UI 텍스트(session_state) 초기화
+                        for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
+                            if key in st.session_state:
+                                del st.session_state[key]
                         st.success(f"'{new_project_name}' 작품이 생성되었습니다.")
                         st.rerun()
                     else:
@@ -87,8 +91,8 @@ def main():
         # 선택된 프로젝트 변경 시 세션 업데이트 및 UI 리로드
         if selected_project != st.session_state['current_project']:
             st.session_state['current_project'] = selected_project
-            # 프로젝트 전환 시 이전의 임시 원고나 리포트 세션을 안전하게 폐기
-            for key in ['current_draft', 'current_title', 'review_report', 'revised_draft']:
+            # 프로젝트 전환 시 이전의 임시 원고, 리포트, 그리고 UI 텍스트(Text Area) 세션을 안전하게 폐기
+            for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()

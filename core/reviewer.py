@@ -3,8 +3,8 @@ from core.llm import generate_text
 from core.context import ContextManager
 
 class Reviewer:
-    def __init__(self):
-        self.ctx = ContextManager()
+    def __init__(self, project_name: str = "default_project"):
+        self.ctx = ContextManager(project_name=project_name)
         
     def review_chapter(self, draft_content: str) -> str:
         """초안 원고가 기존 설정에 맞는지, 오류나 어색한 부분이 없는지 검토합니다."""

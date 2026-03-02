@@ -174,7 +174,7 @@ def main():
 
     # 선택된 프로젝트 기반으로 핵심 객체 초기화 (데이터 격리 방어선)
     generator = Generator(project_name=st.session_state['current_project'])
-    reviewer = Reviewer() # Reviewer도 이후 Context를 사용할 시 넘겨줘야하지만 현재는 draft 텍스트만 처리함
+    reviewer = Reviewer(project_name=st.session_state['current_project'])
     
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")

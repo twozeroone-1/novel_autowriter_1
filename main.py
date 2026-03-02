@@ -319,9 +319,11 @@ def main():
         
         # 원고 내용 불러오기
         draft_to_review = ""
+        review_title = "임시_제목"
         if selected_file == "새로 생성된 초안 사용":
             if 'current_draft' in st.session_state:
                 draft_to_review = st.session_state['current_draft']
+                review_title = st.session_state.get('current_title', "새로운_초안")
             else:
                 st.info("현재 메모리에 새로 생성된 초안이 없습니다. 위 목록에서 기존에 저장된 파일을 선택하시거나, [2] 회차 생성 탭에서 초안을 먼저 생성해 주세요.")
         else:
@@ -329,6 +331,7 @@ def main():
             if file_path.exists():
                 with open(file_path, "r", encoding="utf-8") as f:
                     draft_to_review = f.read()
+                review_title = selected_file.replace(".md", "")
 
         if draft_to_review:
             st.subheader("검수 대상 원고")
@@ -340,6 +343,7 @@ def main():
                     report = reviewer.review_chapter(edited_draft_to_review)
                     st.session_state['review_report'] = report
                     st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
+                    st.session_state['reviewing_title'] = review_title
                 
         if 'review_report' in st.session_state:
             st.divider()
@@ -368,7 +372,8 @@ def main():
                     os.startfile(abs_path)
                     
             if save_revised_btn:
-                saved_path = generator.save_chapter(st.session_state['current_title'] + "_수정본", st.session_state['edited_revised_draft'])
+                base_title = st.session_state.get('reviewing_title', "수정된_원고")
+                saved_path = generator.save_chapter(base_title + "_수정본", st.session_state['edited_revised_draft'])
                 st.success(f"수정본 파일이 저장되었습니다: `{saved_path}`")
                 
                 with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다... 🔄"):

@@ -48,3 +48,20 @@ GEMINI_MODEL="gemini-3-flash-preview"
 ```bash
 python main.py
 ```
+
+---
+
+## 🔄 컴퓨터 재시작 후 다시 실행할 때 (일상적인 사용)
+
+처음 설치가 끝난 후, 나중에 컴퓨터를 껐다 켜고 다시 소설 작업을 이어서 하고 싶을 때는 딱 **두 줄**의 명령어만 순서대로 입력하면 됩니다.
+
+1. VS Code나 터미널에서 `novel_autowriter` (본인의 작업 폴더)를 열어줍니다.
+2. 터미널(명령 프롬프트)창에 아래 두 줄을 순서대로 입력하고 실행합니다.
+
+```bash
+# 1. 가상환경 켜기 (필수!)
+venv\Scripts\activate
+
+# 2. 프로그램 실행하기
+python main.py
+```

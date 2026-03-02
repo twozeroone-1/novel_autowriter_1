@@ -46,7 +46,7 @@ GEMINI_MODEL="gemini-3-flash-preview"
 모든 준비가 끝났습니다! 아래 명령어로 프로그램을 실행하세요.
 
 ```bash
-python main.py
+streamlit run main.py
 ```
 
 ---
@@ -63,5 +63,5 @@ python main.py
 venv\Scripts\activate
 
 # 2. 프로그램 실행하기
-python main.py
+streamlit run main.py
 ```

@@ -310,13 +310,36 @@ def main():
         st.header("편집자 검수 보고서")
         st.markdown("생성된 원고가 세계관과 충돌하지 않는지, 어색한 문맥은 없는지 PD의 시선으로 검토합니다.")
         
-        if 'current_draft' not in st.session_state:
-            st.warning("[2] 회차 생성 탭에서 먼저 초안을 생성해 주세요.")
+        # 저장된 원고 파일 목록 불러오기
+        saved_files = []
+        if generator.chapters_dir.exists():
+            saved_files = [f.name for f in generator.chapters_dir.iterdir() if f.is_file() and f.suffix == '.md']
             
-        elif st.button("현재 초안 검토 요청"):
-            with st.spinner("편집자가 원고를 꼼꼼히 읽고 있습니다... 👓"):
-                report = reviewer.review_chapter(st.session_state['edited_draft'])
-                st.session_state['review_report'] = report
+        selected_file = st.selectbox("📂 검수할 원고 파일 선택", options=["새로 생성된 초안 사용"] + saved_files)
+        
+        # 원고 내용 불러오기
+        draft_to_review = ""
+        if selected_file == "새로 생성된 초안 사용":
+            if 'current_draft' in st.session_state:
+                draft_to_review = st.session_state['current_draft']
+            else:
+                st.info("현재 메모리에 새로 생성된 초안이 없습니다. 위 목록에서 기존에 저장된 파일을 선택하시거나, [2] 회차 생성 탭에서 초안을 먼저 생성해 주세요.")
+        else:
+            file_path = generator.chapters_dir / selected_file
+            if file_path.exists():
+                with open(file_path, "r", encoding="utf-8") as f:
+                    draft_to_review = f.read()
+
+        if draft_to_review:
+            st.subheader("검수 대상 원고")
+            # 사용자가 검수 전에 직접 원고를 한 번 더 수정할 수 있도록 text_area로 제공하고 state에 동기화
+            edited_draft_to_review = st.text_area("이 내용을 바탕으로 편집자에게 검수를 요청합니다.", value=draft_to_review, height=300)
+            
+            if st.button("현재 원고 검토 요청", type="primary"):
+                with st.spinner("편집자가 원고를 꼼꼼히 읽고 있습니다... 👓"):
+                    report = reviewer.review_chapter(edited_draft_to_review)
+                    st.session_state['review_report'] = report
+                    st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
                 
         if 'review_report' in st.session_state:
             st.divider()
@@ -327,7 +350,7 @@ def main():
             st.subheader("리포트 피드백 반영")
             if st.button("✨ 리포트 피드백을 반영하여 초안 자동 수정", type="primary"):
                 with st.spinner("작가가 피드백을 반영하여 원고를 수정하고 있습니다... ✍️"):
-                    revised = reviewer.revise_draft(st.session_state['edited_draft'], st.session_state['review_report'])
+                    revised = reviewer.revise_draft(st.session_state.get('reviewing_draft', draft_to_review), st.session_state['review_report'])
                     st.session_state['revised_draft'] = revised
                     st.success("수정본 작성이 완료되었습니다!")
                     

@@ -92,11 +92,21 @@ def main():
         
         # 선택된 프로젝트 변경 시 세션 업데이트 및 UI 리로드
         if selected_project != st.session_state['current_project']:
-            st.session_state['current_project'] = selected_project
-            # 프로젝트 전환 시 이전의 임시 원고, 리포트, 그리고 UI 텍스트(Text Area) 세션을 안전하게 폐기
+            # 전환 전 세션 초기화
             for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
                 if key in st.session_state:
                     del st.session_state[key]
+            
+            st.session_state['current_project'] = selected_project
+            
+            # 새 프로젝트의 config.json 데이터를 읽어와서 UI 텍스트 영역 세션 상태를 강제로 채워넣음
+            temp_gen = Generator(project_name=selected_project)
+            new_config = temp_gen.ctx.get_config()
+            st.session_state['ta_worldview'] = new_config.get("worldview", "여기에 세계관(STORY_BIBLE)을 작성하세요.")
+            st.session_state['ta_tone'] = new_config.get("tone_and_manner", "여기에 문체(STYLE_GUIDE) 지침을 작성하세요.")
+            st.session_state['ta_continuity'] = new_config.get("continuity", "여기에 절대 변경 불가 룰, 연표, 관계도(CONTINUITY)를 작성하세요.")
+            st.session_state['ta_state'] = new_config.get("state", "여기에 현재 회차 떡밥, 갈등 상황, 감정선(STATE)을 작성하세요.")
+            
             st.rerun()
             
         # 선택된 프로젝트 삭제 기능

@@ -1,15 +1,20 @@
 import streamlit as st
 import json
 import os
+import platform
 import shutil
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 import time
 import datetime
+import uuid
 
 from core.generator import Generator
 from core.reviewer import Reviewer
 from core.automator import Automator
+from core.planner import Planner
+from core.automation_state import AutomationState
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -46,7 +51,48 @@ def get_project_list():
         return []
     return [d.name for d in base_dir.iterdir() if d.is_dir() and d.name != "default_project"]
 
+
+def safe_open_folder(path_obj: Path):
+    abs_path = os.path.abspath(str(path_obj))
+    try:
+        if platform.system() == "Windows":
+            os.startfile(abs_path)  # type: ignore[attr-defined]
+        elif platform.system() == "Darwin":
+            subprocess.run(["open", abs_path], check=True)
+        else:
+            subprocess.run(["xdg-open", abs_path], check=True)
+    except Exception as e:
+        st.error(f"폴더 열기 실패: {e}")
+
+
+def auth_gate():
+    secret_token = ""
+    try:
+        secret_token = str(st.secrets.get("APP_ACCESS_TOKEN", "")).strip()
+    except Exception:
+        secret_token = ""
+    if not secret_token:
+        secret_token = os.getenv("APP_ACCESS_TOKEN", "").strip()
+    if not secret_token:
+        return
+
+    if "authed" not in st.session_state:
+        st.session_state["authed"] = False
+
+    if not st.session_state["authed"]:
+        st.title("🔐 앱 접근 인증")
+        entered = st.text_input("접근 토큰", type="password")
+        if st.button("인증하기", type="primary"):
+            if entered.strip() == secret_token:
+                st.session_state["authed"] = True
+                st.success("인증 성공")
+                st.rerun()
+            else:
+                st.error("토큰이 올바르지 않습니다.")
+        st.stop()
+
 def main():
+    auth_gate()
     # 사이드바 (프로젝트 선택 및 환경설정)
     with st.sidebar:
         st.header("📚 작품(Workspace) 관리")
@@ -179,11 +225,23 @@ def main():
     generator = Generator(project_name=st.session_state['current_project'])
     reviewer = Reviewer(project_name=st.session_state['current_project'])
     automator = Automator(project_name=st.session_state['current_project'])
+    planner = Planner()
+    auto_state = AutomationState(generator.ctx.data_dir)
+    if "auto_owner_id" not in st.session_state:
+        st.session_state["auto_owner_id"] = str(uuid.uuid4())
     
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드", "[5] 자동화 연재 모드"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "[1] 프로젝트 통합 설정",
+        "[2] 회차 생성",
+        "[3] 원고 검수",
+        "[4] 반자동 연재 모드",
+        "[5] 자동화 연재 모드",
+        "[6] 아이디어/제목",
+        "[7] 대형 플롯",
+    ])
 
     with tab1:
         st.header("📚 프로젝트 통합 설정")
@@ -343,14 +401,21 @@ def main():
                                        value="레온과 세리아가 숲속에서 길을 잃고 몬스터와 처음 조우하는 장면을 긴장감 있게 써줘. 세리아가 마법을 쓰려다 실수하는 장면 포함할 것.",
                                        height=150)
         target_length = st.number_input("생성 분량(글자 수) 목표치", min_value=500, max_value=20000, value=5000, step=500, help="원하는 글자수를 지정하세요. AI가 사건의 묘사나 대화를 조절하여 이 분량을 맞추려 노력합니다.")
+        use_plot = st.checkbox("📌 저장된 대형 플롯을 이번 회차 생성에 반영", value=False)
+        plot_strength = st.selectbox(
+            "플롯 반영 강도",
+            options=["loose", "balanced", "strict"],
+            index=1,
+            disabled=not use_plot,
+            help="loose: 느슨하게 참고 / balanced: 권장 / strict: 플롯 우선",
+        )
         
         col1, col2 = st.columns([1, 2])
         with col1:
             generate_btn = st.button("원고 초안 생성하기", type="primary")
         with col2:
             if st.button("📂 저장폴더 열기", key="open_folder_1"):
-                abs_path = os.path.abspath(str(generator.chapters_dir))
-                os.startfile(abs_path)
+                safe_open_folder(generator.chapters_dir)
                 
         if generate_btn:
             if not os.getenv("GOOGLE_API_KEY"):
@@ -359,7 +424,12 @@ def main():
                 st.warning("지시사항을 입력해 주세요.")
             else:
                 with st.spinner(f"작가가 원고를 집필 중입니다 (목표: {target_length}자 내외)... ☕"):
-                    draft = generator.create_chapter(user_instruction, target_length)
+                    draft = generator.create_chapter(
+                        user_instruction,
+                        target_length,
+                        include_plot=use_plot,
+                        plot_strength=plot_strength,
+                    )
                     st.session_state['current_draft'] = draft
                     st.session_state['current_title'] = chapter_title
                     # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태를 삭제하여 화면이 value 값을 정상 로드하도록 처리
@@ -378,8 +448,7 @@ def main():
                 save_draft_btn = st.button("현재 상태로 파일 저장 (마크다운)")
             with col2:
                 if st.button("📂 저장폴더 열기", key="open_folder_2"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    safe_open_folder(generator.chapters_dir)
                     
             if save_draft_btn:
                 saved_path = generator.save_chapter(st.session_state['current_title'], st.session_state['edited_draft'])
@@ -440,8 +509,7 @@ def main():
                     st.success(f"리포트가 저장되었습니다: `{report_path}`")
             with col_r2:
                 if st.button("📂 저장폴더 열기", key="open_folder_report"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    safe_open_folder(generator.chapters_dir)
             
             st.divider()
             st.subheader("리포트 피드백 반영")
@@ -464,8 +532,7 @@ def main():
                 save_revised_btn = st.button("수정본 파일 저장 (마크다운)")
             with col2:
                 if st.button("📂 저장폴더 열기", key="open_folder_3"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    safe_open_folder(generator.chapters_dir)
                     
             if save_revised_btn:
                 base_title = st.session_state.get('reviewing_title', "수정된_원고")
@@ -576,6 +643,13 @@ def main():
     with tab5:
         st.header("⏱️ 완전 자동화 연재 모드 (Auto Mode)")
         st.markdown("설정된 주기마다 AI가 상황과 요약을 스스로 판단하여 다음 회차를 끝없이 연재합니다.")
+        status_snapshot = auto_state.read()
+        st.caption(
+            f"상태: {status_snapshot.get('last_status', 'IDLE')} | "
+            f"누적 사이클: {status_snapshot.get('cycle_count', 0)}"
+        )
+        if status_snapshot.get("last_error"):
+            st.warning(f"최근 오류: {status_snapshot['last_error']}")
 
         # 자동화 관련 상태 초기화
         if 'fully_auto_running' not in st.session_state:
@@ -608,7 +682,34 @@ def main():
             )
 
         st.divider()
-        
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            if st.button("🧯 강제 중지", use_container_width=True):
+                st.session_state['fully_auto_running'] = False
+                st.session_state['next_run_time'] = None
+                auto_state.release_lock(force=True)
+                auto_state.checkpoint(status="FORCE_STOPPED")
+                st.success("강제 중지 완료")
+                st.rerun()
+        with e2:
+            if st.button("🔓 락 해제", use_container_width=True):
+                ok = auto_state.release_lock(force=True)
+                if ok:
+                    st.success("락 해제 완료")
+                else:
+                    st.warning("락 해제 실패")
+        with e3:
+            if st.button("♻️ 체크포인트 복구", use_container_width=True):
+                snap = auto_state.read()
+                next_run = int(snap.get("next_run_at", 0))
+                if next_run > 0:
+                    st.session_state['next_run_time'] = float(next_run)
+                    st.session_state['fully_auto_running'] = True
+                    st.success("체크포인트를 복구했습니다.")
+                    st.rerun()
+                else:
+                    st.info("복구 가능한 체크포인트가 없습니다.")
+
         col_start, col_stop = st.columns(2)
         with col_start:
             if not st.session_state['fully_auto_running']:
@@ -616,11 +717,19 @@ def main():
                     if not os.getenv("GOOGLE_API_KEY"):
                         st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
                     else:
+                        lock_ok = auto_state.acquire_lock(st.session_state["auto_owner_id"])
+                        if not lock_ok:
+                            st.error("다른 세션이 자동 연재 락을 보유 중입니다. '락 해제' 후 다시 시도하세요.")
+                            st.stop()
                         st.session_state['auto_interval_minutes'] = interval_input
                         st.session_state['auto_target_length_full'] = length_input
                         st.session_state['fully_auto_running'] = True
                         # 첫 실행은 약간의 여유를 두고 바로 실행하도록 세팅 (현재 시간 + 5초)
                         st.session_state['next_run_time'] = time.time() + 5
+                        auto_state.checkpoint(
+                            status="RUNNING",
+                            next_run_at=int(st.session_state['next_run_time']),
+                        )
                         st.rerun()
             else:
                 st.button("🚀 무한 자동 연재 중...", type="primary", use_container_width=True, disabled=True)
@@ -630,6 +739,8 @@ def main():
                 if st.button("🛑 자동 연재 중지", type="secondary", use_container_width=True):
                     st.session_state['fully_auto_running'] = False
                     st.session_state['next_run_time'] = None
+                    auto_state.release_lock(st.session_state["auto_owner_id"], force=False)
+                    auto_state.checkpoint(status="STOPPED")
                     st.success("자동 연재가 중지되었습니다.")
                     st.rerun()
 
@@ -662,6 +773,11 @@ def main():
                 auto_instruction = "이전 연재의 STATE와 누적된 PREVIOUS SUMMARY의 사건 및 감정선을 그대로 이어받아, 흐름이 파탄나거나 모순되지 않게 전개해줘. 너무 급전개가 되지 않도록 하되, 이야기의 진행(새로운 갈등이나 떡밥 등장)은 반드시 포함될 것."
                 
                 try:
+                    auto_state.checkpoint(
+                        status="RUNNING",
+                        run_started=True,
+                        next_run_at=int(st.session_state['next_run_time'] or 0),
+                    )
                     # 백그라운드 구동에 가까운 파이프라인 1 Cycle 처리
                     result = automator.run_single_cycle(
                         auto_title, 
@@ -673,6 +789,11 @@ def main():
                     # 성공 후 다음 시간 설정
                     st.success(f"🎉 `{auto_title}` 생성이 완료되었습니다!")
                     st.session_state['next_run_time'] = time.time() + (st.session_state['auto_interval_minutes'] * 60)
+                    auto_state.checkpoint(
+                        status="RUNNING",
+                        run_succeeded=True,
+                        next_run_at=int(st.session_state['next_run_time']),
+                    )
                     time.sleep(3) # 완료 메시지를 3초간 띄워주고 다시 카운트다운 진입
                     st.rerun()
                     
@@ -680,7 +801,72 @@ def main():
                     st.error(f"자동 연재 중 심각한 오류가 발생했습니다: {e}")
                     st.session_state['fully_auto_running'] = False
                     st.session_state['next_run_time'] = None
+                    auto_state.release_lock(st.session_state["auto_owner_id"], force=True)
+                    auto_state.checkpoint(status="ERROR", error=str(e))
                     st.button("에러 확인 후 수동 재시작", type="primary")
+
+    with tab6:
+        st.header("💡 아이디어/제목 추천")
+        st.markdown("플랫폼 트렌드와 관심 키워드를 바탕으로 웹소설 아이디어와 제목 후보를 생성합니다.")
+        idea_platform = st.text_input("플랫폼", value="문피아, 카카오페이지, 노벨피아, 네이버시리즈", key="idea_platform")
+        idea_keywords = st.text_input("관심 키워드(쉼표 구분)", value="회귀, 아카데미, 성장, 코미디", key="idea_keywords")
+        idea_tone = st.selectbox("원하는 톤", ["가볍고 팝한", "다크하고 강한", "정통 판타지"], index=0, key="idea_tone")
+        if st.button("✨ 아이디어/제목 생성", type="primary", use_container_width=True, key="btn_idea_gen"):
+            if not os.getenv("GOOGLE_API_KEY"):
+                st.error("API 키가 설정되지 않았습니다. 좌측 사이드바에서 설정해 주세요.")
+            else:
+                with st.spinner("트렌드 기반 아이디어를 생성 중입니다..."):
+                    result = planner.suggest_ideas(
+                        platform_name=idea_platform,
+                        user_keywords=idea_keywords,
+                        tone=idea_tone,
+                    )
+                    st.session_state["idea_result"] = result
+        if st.session_state.get("idea_result"):
+            st.text_area("추천 결과", value=st.session_state["idea_result"], height=360, key="idea_result_view")
+
+    with tab7:
+        st.header("🧭 대형 플롯 설계")
+        st.markdown("300화 장편 기준으로 30화 단위 대사건을 포함한 플롯을 생성하고 저장합니다.")
+        p1, p2 = st.columns(2)
+        with p1:
+            plot_platform = st.text_input("플랫폼", value="노벨피아", key="plot_platform")
+            plot_title = st.text_input("작품 제목", value="망한 아카데미에서 살아남는 법", key="plot_title")
+            phase1_focus = st.text_area("1~100화 중점", value="독자 어그로용 떡밥과 장르 정착", height=90, key="plot_phase1")
+        with p2:
+            phase2_focus = st.text_area("101~200화 중점", value="무한반복 쌀먹 패턴 떡밥 회수 및 확장", height=90, key="plot_phase2")
+            phase3_focus = st.text_area("201~300화 중점", value="세계관 비밀 공개와 대단원", height=90, key="plot_phase3")
+        if st.button("🧠 대형 플롯 생성", type="primary", use_container_width=True, key="btn_plot_gen"):
+            if not os.getenv("GOOGLE_API_KEY"):
+                st.error("API 키가 설정되지 않았습니다. 좌측 사이드바에서 설정해 주세요.")
+            elif not plot_title.strip():
+                st.warning("제목을 입력해 주세요.")
+            else:
+                with st.spinner("플롯을 설계 중입니다..."):
+                    result = planner.build_macro_plot(
+                        platform_name=plot_platform,
+                        title=plot_title,
+                        phase1_focus=phase1_focus,
+                        phase2_focus=phase2_focus,
+                        phase3_focus=phase3_focus,
+                        total_episodes=300,
+                    )
+                    st.session_state["plot_result"] = result
+        if st.session_state.get("plot_result"):
+            st.text_area("플롯 결과", value=st.session_state["plot_result"], height=360, key="plot_result_view")
+            c_plot1, c_plot2 = st.columns(2)
+            with c_plot1:
+                if st.button("💾 플롯을 프로젝트 설정에 저장", use_container_width=True, key="btn_plot_save"):
+                    generator.ctx.save_plot_outline(st.session_state["plot_result"])
+                    st.success("플롯이 저장되었습니다. [2] 회차 생성에서 선택 반영할 수 있습니다.")
+            with c_plot2:
+                if st.button("📥 저장된 플롯 불러오기", use_container_width=True, key="btn_plot_load"):
+                    saved_plot = generator.ctx.get_plot_outline()
+                    if saved_plot:
+                        st.session_state["plot_result"] = saved_plot
+                        st.success("저장된 플롯을 불러왔습니다.")
+                    else:
+                        st.info("저장된 플롯이 없습니다.")
 
 if __name__ == "__main__":
     main()

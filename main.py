@@ -233,7 +233,27 @@ def main():
                 st.success("설정이 성공적으로 저장되었습니다.")
         
         with col_btn2:
-            st.info("💡 **Tip:** 세계관(STORY_BIBLE)에 설정 뼈대를 적어놓고 AI에게 살을 붙여달라고 요청하는 기능(구체화 버튼)은 곧 지원될 예정입니다!")
+            if st.button("✨ 설정 뼈대 구체화 (AI 보조)", type="primary", use_container_width=True):
+                if not worldview_text.strip():
+                    st.warning("먼저 STORY BIBLE (세계관) 입력창에 이야기의 뼈대나 핵심 설정을 간단히 적어주세요.")
+                elif not os.getenv("GOOGLE_API_KEY"):
+                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                else:
+                    with st.spinner("AI가 세계관에 살을 붙이고 있습니다... 🧠"):
+                        try:
+                            # 1. API 호출로 구체화된 텍스트 생성
+                            elaborated_text = generator.elaborate_worldview(worldview_text)
+                            
+                            # 2. config 데이터 업데이트 및 저장
+                            config["worldview"] = elaborated_text
+                            generator.ctx.save_config(config)
+                            
+                            # 3. session_state 업데이트 및 화면 새로고침
+                            st.session_state['ta_worldview'] = elaborated_text
+                            st.success("세계관 구체화 성공! 내용이 자동으로 변경되었습니다.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"구체화 중 오류가 발생했습니다: {e}")
 
         st.divider()
         # [과거 줄거리 요약 (시스템 자동 누적)]
@@ -395,6 +415,20 @@ def main():
             st.divider()
             st.subheader("📝 검수 리포트 결과")
             st.markdown(st.session_state['review_report'])
+            
+            col_r1, col_r2 = st.columns([1, 2])
+            with col_r1:
+                if st.button("💾 이 리포트를 파일로 저장 (.md)", key="save_report_btn"):
+                    base_title = st.session_state.get('reviewing_title', "원고")
+                    report_filename = f"{base_title}_검수리포트.md"
+                    report_path = generator.chapters_dir / report_filename
+                    with open(report_path, "w", encoding="utf-8") as f:
+                        f.write(st.session_state['review_report'])
+                    st.success(f"리포트가 저장되었습니다: `{report_path}`")
+            with col_r2:
+                if st.button("📂 저장폴더 열기", key="open_folder_report"):
+                    abs_path = os.path.abspath(str(generator.chapters_dir))
+                    os.startfile(abs_path)
             
             st.divider()
             st.subheader("리포트 피드백 반영")

@@ -48,6 +48,29 @@ class Generator:
         result = generate_text(prompt, system_instruction="너는 줄거리 파악과 요약에 능통한 편집자야.")
         return result.strip()
 
+    def compress_history_summary(self, long_summary: str) -> str:
+        """누적된 과거 줄거리가 너무 길어지면 이를 계층형(시즌 요약 + 최근 전개)으로 초압축합니다."""
+        prompt = f"""당신은 탑티어 웹소설 편집자입니다.
+다음은 현재까지 연재된 소설의 방대한 누적 줄거리 요약본입니다. 이 내용이 너무 길어져 압축이 필요합니다.
+
+[기존 누적 줄거리]
+{long_summary}
+
+위 텍스트를 읽고 다음 두 가지 파트로 나누어 새롭게 요약해 주세요.
+1. [시즌 요약]: 극초반부부터 중간부까지의 전반적인 핵심 기승전 흐름을 500자 이내의 단일 문단으로 초압축하세요.
+2. [최근 전개]: 기존 요약본의 가장 맨 마지막 부분(최근 3~4화 분량)에 해당하는 구체적인 사건 전개와 떡밥, 감정선은 디테일을 살려서 300자 이내로 요약해 주세요.
+
+반드시 아래와 같은 포맷으로만 출력하세요.
+[시즌 요약]
+(여기에 시즌 요약 내용)
+
+[최근 전개]
+(여기에 최근 전개 내용)
+"""
+        print(">> ⚠️ 토큰 최적화: 방대한 과거 줄거리 압축 진행 중...")
+        result = generate_text(prompt, system_instruction="너는 방대한 스토리를 구조적으로 완벽하게 요약하는 편집자야.")
+        return result.strip()
+
     def elaborate_worldview(self, draft_content: str) -> str:
         """사용자가 입력한 세계관 초안을 바탕으로 AI가 구체적인 세계관을 생성합니다."""
         prompt = f"""당신은 탑티어 웹소설 세계관 기획자입니다.

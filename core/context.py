@@ -110,7 +110,7 @@ class ContextManager:
         with open(self.chars_path, "w", encoding="utf-8") as f:
             json.dump(chars_data, f, ensure_ascii=False, indent=4)
             
-    def update_summary(self, new_summary: str):
+    def update_summary(self, new_summary: str, generator_instance=None):
         config = self._load_json(self.config_path)
         if not isinstance(config, dict): config = {}
             
@@ -119,6 +119,13 @@ class ContextManager:
             updated_summary = old_summary + "\n\n[진행된 줄거리 요약]\n" + new_summary
         else:
             updated_summary = new_summary
+            
+        # ⚠️ 토큰 최적화 로직 (임계점: 약 3000자)
+        # generator_instance가 주어지고, 길이가 초과하면 압축 실행
+        if generator_instance and len(updated_summary) > 3000:
+            compressed = generator_instance.compress_history_summary(updated_summary)
+            if compressed: 
+                updated_summary = compressed
             
         config["summary_of_previous"] = updated_summary
         self.save_config(config)

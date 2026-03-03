@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from core.generator import Generator
 from core.reviewer import Reviewer
+from core.automator import Automator
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -175,11 +176,12 @@ def main():
     # 선택된 프로젝트 기반으로 핵심 객체 초기화 (데이터 격리 방어선)
     generator = Generator(project_name=st.session_state['current_project'])
     reviewer = Reviewer(project_name=st.session_state['current_project'])
+    automator = Automator(project_name=st.session_state['current_project'])
     
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")
     
-    tab1, tab2, tab3 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수"])
+    tab1, tab2, tab3, tab4 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드"])
 
     with tab1:
         st.header("📚 프로젝트 통합 설정 (OpenClaw 포맷)")
@@ -420,10 +422,106 @@ def main():
                 saved_path = generator.save_chapter(base_title + "_수정본", st.session_state['edited_revised_draft'])
                 st.success(f"수정본 파일이 저장되었습니다: `{saved_path}`")
                 
-                with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다... 🔄"):
+                with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다 (필요시 자동 압축 🔄)..."):
                     new_summary = generator.summarize_chapter(st.session_state['edited_revised_draft'])
-                    generator.ctx.update_summary(new_summary)
-                    st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가)도 완료되었습니다!")
+                    generator.ctx.update_summary(new_summary, generator_instance=generator)
+                    st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가/압축)이 완료되었습니다!")
+
+    with tab4:
+        st.header("🤖 반자동 연재 모드 (Semi-Auto Mode)")
+        st.markdown("클릭 한 번으로 초안 생성부터 검수, 수정, 다음 회차 설정 요약까지 일괄 처리합니다.")
+
+        # 상태 머신 초기화
+        if 'auto_state' not in st.session_state:
+            st.session_state['auto_state'] = 'READY'
+            
+        if st.session_state['auto_state'] == 'READY':
+            st.info("다음 회차의 지시사항을 입력하고 파이프라인을 가동하세요.")
+            auto_chapter_title = st.text_input("회차 제목 (저장용 파일명)", value="제 3화: 새로운 여정", key="auto_title")
+            auto_instruction = st.text_area("이번 회차 전개 지시사항", 
+                                           value="주인공 일행이 마침내 동굴을 벗어나 거대한 도시의 입구에 도착하는 장면을 장엄하게 묘사해줘.",
+                                           height=150, key="auto_inst")
+            auto_target_length = st.number_input("생성 분량(글자 수) 목표치", min_value=500, max_value=20000, value=5000, step=500, key="auto_len")
+            
+            if st.button("🚀 자동 생성 파이프라인 가동", type="primary", use_container_width=True):
+                if not os.getenv("GOOGLE_API_KEY"):
+                    st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+                elif not auto_instruction.strip():
+                    st.warning("지시사항을 입력해 주세요.")
+                else:
+                    st.session_state['auto_state'] = 'RUNNING'
+                    st.rerun()
+
+        elif st.session_state['auto_state'] == 'RUNNING':
+            st.info("파이프라인이 실행 중입니다. 잠시만 기다려 주세요...")
+            try:
+                # 1 Cycle 풀가동
+                result = automator.run_single_cycle(
+                    st.session_state['auto_title'], 
+                    st.session_state['auto_inst'], 
+                    st.session_state['auto_len']
+                )
+                
+                # 결과 저장 후 대기(REVIEW) 상태로 전환
+                st.session_state['auto_result'] = result
+                st.session_state['auto_state'] = 'REVIEW'
+                st.rerun()
+            except Exception as e:
+                st.error(f"파이프라인 실행 중 오류가 발생했습니다: {e}")
+                if st.button("돌아가기"):
+                    st.session_state['auto_state'] = 'READY'
+                    st.rerun()
+
+        elif st.session_state['auto_state'] == 'REVIEW':
+            st.success("🎉 한 회차 자동 생성이 완료되었습니다! 다음 회차로 넘어가기 전 설정을 검토해 주세요.")
+            
+            result = st.session_state.get('auto_result', {})
+            
+            with st.expander("📄 [결과] 최종 수정본 확인", expanded=False):
+                st.text_area("수정본 (읽기 전용)", value=result.get('revised_draft', ''), height=400)
+                st.info(f"💾 저장 위치: `{result.get('saved_path', '')}`")
+                
+            with st.expander("📝 [결과] 편집자 검수 리포트", expanded=False):
+                st.markdown(result.get('review_report', ''))
+                
+            st.divider()
+            st.subheader("⚙️ 다음 회차를 위한 설정(JSON) 갱신")
+            st.markdown("방금 생성된 회차의 결과(새로운 인물 등장, 떡밥 회수 등)를 반영하여 아래 설정을 업데이트해 주세요.")
+            
+            # 현재 JSON 설정 로드
+            current_config = generator.ctx.get_config()
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                new_state = st.text_area(
+                    "🧩 CURRENT STATE 업데이트", 
+                    value=current_config.get("state", ""), 
+                    height=200, 
+                    help="방금 회차를 통해 달라진 현재 상황이나 다음 회차로 이어질 단기 목표를 갱신하세요."
+                )
+            with c2:
+                new_summary = st.text_area(
+                    "📜 PREVIOUS SUMMARY (자동 갱신됨)", 
+                    value=current_config.get("summary_of_previous", ""), 
+                    height=200,
+                    help="AI가 방금 회차의 내용을 요약해 끝부분에 추가한 상태입니다. 필요 시 다듬어주세요."
+                )
+
+            st.divider()
+            if st.button("✅ 설정 저장 후 다음 회차 준비 (READY)", type="primary", use_container_width=True):
+                # 변경된 설정 저장
+                current_config["state"] = new_state
+                current_config["summary_of_previous"] = new_summary
+                generator.ctx.save_config(current_config)
+                
+                # 상태 초기화
+                st.session_state['auto_state'] = 'READY'
+                # 기존 입력값 지우기
+                if 'auto_title' in st.session_state: del st.session_state['auto_title']
+                if 'auto_inst' in st.session_state: del st.session_state['auto_inst']
+                
+                st.success("설정이 저장되었습니다. 다음 회차를 준비합니다.")
+                st.rerun()
 
 if __name__ == "__main__":
     main()

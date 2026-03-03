@@ -4,6 +4,8 @@ import os
 import shutil
 from pathlib import Path
 from dotenv import load_dotenv
+import time
+import datetime
 
 from core.generator import Generator
 from core.reviewer import Reviewer
@@ -181,7 +183,7 @@ def main():
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드", "[5] 자동화 연재 모드"])
 
     with tab1:
         st.header("📚 프로젝트 통합 설정 (OpenClaw 포맷)")
@@ -258,8 +260,8 @@ def main():
                             config["worldview"] = elaborated_text
                             generator.ctx.save_config(config)
                             
-                            # 3. session_state 업데이트 및 화면 새로고침
-                            st.session_state['ta_worldview'] = elaborated_text
+                            # 3. session_state 업데이트 대신, 값을 재로드하기 위해 강제 삭제 처리 후 rerun()
+                            del st.session_state['ta_worldview']
                             st.success("세계관 구체화 성공! 내용이 자동으로 변경되었습니다.")
                             st.rerun()
                         except Exception as e:
@@ -360,8 +362,9 @@ def main():
                     draft = generator.create_chapter(user_instruction, target_length)
                     st.session_state['current_draft'] = draft
                     st.session_state['current_title'] = chapter_title
-                    # [버그 픽스] 스트림릿 텍스트 에어리어(key="edited_draft")에 새 원고를 강제로 즉시 덮어씌움
-                    st.session_state['edited_draft'] = draft
+                    # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태를 삭제하여 화면이 value 값을 정상 로드하도록 처리
+                    if 'edited_draft' in st.session_state:
+                        del st.session_state['edited_draft']
                     st.success("초안 생성이 완료되었습니다!")
                     
         if 'current_draft' in st.session_state:
@@ -446,6 +449,9 @@ def main():
                 with st.spinner("작가가 피드백을 반영하여 원고를 수정하고 있습니다... ✍️"):
                     revised = reviewer.revise_draft(st.session_state.get('reviewing_draft', draft_to_review), st.session_state['review_report'])
                     st.session_state['revised_draft'] = revised
+                    # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태 삭제
+                    if 'edited_revised_draft' in st.session_state:
+                        del st.session_state['edited_revised_draft']
                     st.success("수정본 작성이 완료되었습니다!")
                     
         if 'revised_draft' in st.session_state:
@@ -566,6 +572,115 @@ def main():
                 
                 st.success("설정이 저장되었습니다. 다음 회차를 준비합니다.")
                 st.rerun()
+
+    with tab5:
+        st.header("⏱️ 완전 자동화 연재 모드 (Auto Mode)")
+        st.markdown("설정된 주기마다 AI가 상황과 요약을 스스로 판단하여 다음 회차를 끝없이 연재합니다.")
+
+        # 자동화 관련 상태 초기화
+        if 'fully_auto_running' not in st.session_state:
+            st.session_state['fully_auto_running'] = False
+        if 'auto_interval_minutes' not in st.session_state:
+            st.session_state['auto_interval_minutes'] = 60
+        if 'next_run_time' not in st.session_state:
+            st.session_state['next_run_time'] = None
+        if 'auto_target_length_full' not in st.session_state:
+            st.session_state['auto_target_length_full'] = 5000
+
+        c1, c2 = st.columns(2)
+        with c1:
+            interval_input = st.number_input(
+                "연재 주기 (분 단위)", 
+                min_value=1, max_value=1440, 
+                value=st.session_state['auto_interval_minutes'], 
+                step=10, 
+                disabled=st.session_state['fully_auto_running'],
+                help="예: 60분 간격으로 새 회차를 생성합니다."
+            )
+            
+        with c2:
+            length_input = st.number_input(
+                "생성 분량(글자 수) 목표치", 
+                min_value=500, max_value=20000, 
+                value=st.session_state['auto_target_length_full'], 
+                step=500,
+                disabled=st.session_state['fully_auto_running']
+            )
+
+        st.divider()
+        
+        col_start, col_stop = st.columns(2)
+        with col_start:
+            if not st.session_state['fully_auto_running']:
+                if st.button("🚀 무한 자동 연재 시작", type="primary", use_container_width=True):
+                    if not os.getenv("GOOGLE_API_KEY"):
+                        st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+                    else:
+                        st.session_state['auto_interval_minutes'] = interval_input
+                        st.session_state['auto_target_length_full'] = length_input
+                        st.session_state['fully_auto_running'] = True
+                        # 첫 실행은 약간의 여유를 두고 바로 실행하도록 세팅 (현재 시간 + 5초)
+                        st.session_state['next_run_time'] = time.time() + 5
+                        st.rerun()
+            else:
+                st.button("🚀 무한 자동 연재 중...", type="primary", use_container_width=True, disabled=True)
+                
+        with col_stop:
+            if st.session_state['fully_auto_running']:
+                if st.button("🛑 자동 연재 중지", type="secondary", use_container_width=True):
+                    st.session_state['fully_auto_running'] = False
+                    st.session_state['next_run_time'] = None
+                    st.success("자동 연재가 중지되었습니다.")
+                    st.rerun()
+
+        if st.session_state['fully_auto_running'] and st.session_state['next_run_time']:
+            now = time.time()
+            remaining_seconds = int(st.session_state['next_run_time'] - now)
+            
+            if remaining_seconds > 0:
+                # 카운트다운 표시
+                mins, secs = divmod(remaining_seconds, 60)
+                hours, mins = divmod(mins, 60)
+                time_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
+                st.info(f"⏳ 다음 연재까지 남은 시간: **{time_str}**")
+                
+                # 1초 강제 대기 후 화면 파임 방지를 위해 UI 업데이트
+                time.sleep(1)
+                st.rerun()
+            else:
+                # 시간이 다 됨 -> 파이프라인 가동
+                st.warning("🔄 시간이 다 되었습니다! 다음 회차를 생성합니다...")
+                
+                # 1. 파일 개수로 제목 추론
+                saved_files = []
+                if generator.chapters_dir.exists():
+                    saved_files = [f for f in generator.chapters_dir.iterdir() if f.is_file() and f.suffix == '.md']
+                next_chapter_num = len(saved_files) + 1
+                auto_title = f"[Auto] 제 {next_chapter_num}화"
+                
+                # 2. 범용 지시사항 설정
+                auto_instruction = "이전 연재의 STATE와 누적된 PREVIOUS SUMMARY의 사건 및 감정선을 그대로 이어받아, 흐름이 파탄나거나 모순되지 않게 전개해줘. 너무 급전개가 되지 않도록 하되, 이야기의 진행(새로운 갈등이나 떡밥 등장)은 반드시 포함될 것."
+                
+                try:
+                    # 백그라운드 구동에 가까운 파이프라인 1 Cycle 처리
+                    result = automator.run_single_cycle(
+                        auto_title, 
+                        auto_instruction, 
+                        st.session_state['auto_target_length_full']
+                    )
+                    
+                    # 덮어쓰거나 수동 개입할 게 없으므로 현재 state는 유지, 요약은 알아서 generator 내에서 처리되었음
+                    # 성공 후 다음 시간 설정
+                    st.success(f"🎉 `{auto_title}` 생성이 완료되었습니다!")
+                    st.session_state['next_run_time'] = time.time() + (st.session_state['auto_interval_minutes'] * 60)
+                    time.sleep(3) # 완료 메시지를 3초간 띄워주고 다시 카운트다운 진입
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"자동 연재 중 심각한 오류가 발생했습니다: {e}")
+                    st.session_state['fully_auto_running'] = False
+                    st.session_state['next_run_time'] = None
+                    st.button("에러 확인 후 수동 재시작", type="primary")
 
 if __name__ == "__main__":
     main()

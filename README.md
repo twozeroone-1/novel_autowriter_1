@@ -42,6 +42,7 @@ pip install -r requirements.txt
 ```env
 # .env 파일 수정한 예시
 LLM_PROVIDER="google_api"
+LLM_FALLBACK_TO_API="true"
 GOOGLE_API_KEY="AIzaSy...진짜키1, AIzaSy...진짜키2, AIzaSy...진짜키3"
 GEMINI_MODEL="gemini-3-flash-preview"
 ```
@@ -51,6 +52,8 @@ Gemini CLI OAuth 모드를 쓰려면:
 gemini
 # 브라우저 로그인 완료 후 앱에서 LLM 실행 방식 = Gemini CLI OAuth 선택
 ```
+
+`gemini_cli_oauth` 모드에서 실패 시 `LLM_FALLBACK_TO_API="true"`이면 Google API Key 모드로 자동 재시도합니다.
 
 ### 4단계: 프로그램 실행
 

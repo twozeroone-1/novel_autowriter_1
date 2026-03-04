@@ -16,7 +16,7 @@ from core.automator import Automator
 from core.planner import Planner
 from core.automation_state import AutomationState
 from core.context import validate_project_name
-from core.llm import LLMError, get_llm_provider, get_llm_readiness
+from core.llm import LLMError, get_llm_provider, get_llm_readiness, is_oauth_fallback_enabled
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -236,6 +236,17 @@ def main():
             set_env_variable("LLM_PROVIDER", selected_provider)
             load_dotenv(override=True)
             st.success(f"✅ LLM 실행 방식이 '{provider_labels[selected_provider]}'(으)로 변경되었습니다.")
+            st.rerun()
+
+        fallback_to_api = st.checkbox(
+            "Gemini OAuth 실패 시 API 키로 자동 fallback",
+            value=is_oauth_fallback_enabled(),
+            help="OAuth 모드에서 네트워크/응답 오류가 발생하면 Google API 키 모드로 자동 재시도합니다.",
+        )
+        if fallback_to_api != is_oauth_fallback_enabled():
+            set_env_variable("LLM_FALLBACK_TO_API", "true" if fallback_to_api else "false")
+            load_dotenv(override=True)
+            st.success("✅ fallback 설정이 적용되었습니다.")
             st.rerun()
 
         if selected_provider == "google_api":

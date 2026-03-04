@@ -33,6 +33,11 @@ def get_llm_provider() -> str:
     return provider
 
 
+def is_oauth_fallback_enabled() -> bool:
+    raw = os.getenv("LLM_FALLBACK_TO_API", "true").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def get_llm_readiness(provider: Optional[str] = None) -> tuple[bool, str]:
     selected = provider or get_llm_provider()
     if selected == "gemini_cli_oauth":
@@ -211,11 +216,22 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
     """Gemini 모델을 호출하여 프롬프트에 대한 텍스트 응답을 생성합니다."""
     provider = get_llm_provider()
     if provider == "gemini_cli_oauth":
-        return _generate_with_gemini_cli(
-            prompt=prompt,
-            system_instruction=system_instruction,
-            max_output_tokens=max_output_tokens,
-        )
+        try:
+            return _generate_with_gemini_cli(
+                prompt=prompt,
+                system_instruction=system_instruction,
+                max_output_tokens=max_output_tokens,
+            )
+        except LLMServiceError as e:
+            if is_oauth_fallback_enabled():
+                ready, _ = get_llm_readiness("google_api")
+                if ready:
+                    return _generate_with_google_api(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        max_output_tokens=max_output_tokens,
+                    )
+            raise e
     return _generate_with_google_api(
         prompt=prompt,
         system_instruction=system_instruction,

@@ -16,7 +16,7 @@ from core.automator import Automator
 from core.planner import Planner
 from core.automation_state import AutomationState
 from core.context import validate_project_name
-from core.llm import LLMError
+from core.llm import LLMError, get_llm_provider, get_llm_readiness
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -115,6 +115,13 @@ def get_next_auto_chapter_number(chapters_dir: Path) -> int:
         max_num = max(max_num, int(match.group(1)))
     return max_num + 1 if max_num > 0 else 1
 
+
+def is_llm_ready(show_error: bool = True) -> bool:
+    ready, message = get_llm_readiness()
+    if not ready and show_error:
+        st.error(message)
+    return ready
+
 def main():
     auth_gate()
     # 사이드바 (프로젝트 선택 및 환경설정)
@@ -212,14 +219,48 @@ def main():
                     
         st.divider()
         st.header("⚙️ API 및 모델 설정")
-        current_api_key = os.getenv("GOOGLE_API_KEY", "")
-        new_api_key = st.text_input("🔑 Google API Key", value=current_api_key, type="password", help="여러 개의 키를 쉼표(,)로 구분하여 입력하시면 하나가 막혔을 때 다음 키로 자동 우회(Fallback)합니다.")
-        if st.button("API 키 갱신", use_container_width=True):
-            if new_api_key.strip():
-                set_env_variable("GOOGLE_API_KEY", new_api_key.strip())
-                load_dotenv(override=True)
-                st.success("✅ API 키가 적용되었습니다.")
-                st.rerun()
+        provider_options = ["google_api", "gemini_cli_oauth"]
+        provider_labels = {
+            "google_api": "Google API Key",
+            "gemini_cli_oauth": "Gemini CLI OAuth",
+        }
+        current_provider = get_llm_provider()
+        selected_provider = st.selectbox(
+            "LLM 실행 방식",
+            options=provider_options,
+            index=provider_options.index(current_provider) if current_provider in provider_options else 0,
+            format_func=lambda v: provider_labels.get(v, v),
+        )
+
+        if selected_provider != current_provider:
+            set_env_variable("LLM_PROVIDER", selected_provider)
+            load_dotenv(override=True)
+            st.success(f"✅ LLM 실행 방식이 '{provider_labels[selected_provider]}'(으)로 변경되었습니다.")
+            st.rerun()
+
+        if selected_provider == "google_api":
+            current_api_key = os.getenv("GOOGLE_API_KEY", "")
+            new_api_key = st.text_input(
+                "🔑 Google API Key",
+                value=current_api_key,
+                type="password",
+                help="여러 개의 키를 쉼표(,)로 구분하여 입력하시면 하나가 막혔을 때 다음 키로 자동 우회(Fallback)합니다.",
+            )
+            if st.button("API 키 갱신", use_container_width=True):
+                if new_api_key.strip():
+                    set_env_variable("GOOGLE_API_KEY", new_api_key.strip())
+                    load_dotenv(override=True)
+                    st.success("✅ API 키가 적용되었습니다.")
+                    st.rerun()
+        else:
+            st.info("Gemini CLI OAuth 모드입니다. API 키 없이 `gemini` 로그인 세션을 사용합니다.")
+            st.caption("인증이 필요한 경우 터미널에서 `gemini`를 실행해 로그인해 주세요.")
+
+        ready, ready_msg = get_llm_readiness(selected_provider)
+        if ready:
+            st.caption(f"준비 상태: {ready_msg}")
+        else:
+            st.warning(f"준비 상태: {ready_msg}")
                 
         # 생성 AI 모델 선택 드롭다운
         available_models = [
@@ -335,8 +376,8 @@ def main():
             if st.button("✨ 설정 뼈대 구체화 (AI 보조)", type="primary", use_container_width=True):
                 if not worldview_text.strip():
                     st.warning("먼저 STORY BIBLE (세계관) 입력창에 이야기의 뼈대나 핵심 설정을 간단히 적어주세요.")
-                elif not os.getenv("GOOGLE_API_KEY"):
-                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                elif not is_llm_ready():
+                    pass
                 else:
                     with st.spinner("AI가 세계관에 살을 붙이고 있습니다... 🧠"):
                         try:
@@ -447,8 +488,8 @@ def main():
                 safe_open_folder(generator.chapters_dir)
                 
         if generate_btn:
-            if not os.getenv("GOOGLE_API_KEY"):
-                st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+            if not is_llm_ready():
+                pass
             elif not user_instruction.strip():
                 st.warning("지시사항을 입력해 주세요.")
             else:
@@ -610,8 +651,8 @@ def main():
             auto_target_length = st.number_input("생성 분량(글자 수) 목표치", min_value=500, max_value=20000, value=5000, step=500, key="auto_len")
             
             if st.button("🚀 자동 생성 파이프라인 가동", type="primary", use_container_width=True):
-                if not os.getenv("GOOGLE_API_KEY"):
-                    st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+                if not is_llm_ready():
+                    pass
                 elif not auto_instruction.strip():
                     st.warning("지시사항을 입력해 주세요.")
                 else:
@@ -768,8 +809,8 @@ def main():
         with col_start:
             if not st.session_state['fully_auto_running']:
                 if st.button("🚀 무한 자동 연재 시작", type="primary", use_container_width=True):
-                    if not os.getenv("GOOGLE_API_KEY"):
-                        st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+                    if not is_llm_ready():
+                        pass
                     else:
                         lock_ok = auto_state.acquire_lock(st.session_state["auto_owner_id"])
                         if not lock_ok:
@@ -864,8 +905,8 @@ def main():
         idea_keywords = st.text_input("관심 키워드(쉼표 구분)", value="회귀, 아카데미, 성장, 코미디", key="idea_keywords")
         idea_tone = st.selectbox("원하는 톤", ["가볍고 팝한", "다크하고 강한", "정통 판타지"], index=0, key="idea_tone")
         if st.button("✨ 아이디어/제목 생성", type="primary", use_container_width=True, key="btn_idea_gen"):
-            if not os.getenv("GOOGLE_API_KEY"):
-                st.error("API 키가 설정되지 않았습니다. 좌측 사이드바에서 설정해 주세요.")
+            if not is_llm_ready():
+                pass
             else:
                 with st.spinner("트렌드 기반 아이디어를 생성 중입니다..."):
                     try:
@@ -894,8 +935,8 @@ def main():
             phase2_focus = st.text_area("101~200화 중점", value="무한반복 쌀먹 패턴 떡밥 회수 및 확장", height=90, key="plot_phase2")
             phase3_focus = st.text_area("201~300화 중점", value="세계관 비밀 공개와 대단원", height=90, key="plot_phase3")
         if st.button("🧠 대형 플롯 생성", type="primary", use_container_width=True, key="btn_plot_gen"):
-            if not os.getenv("GOOGLE_API_KEY"):
-                st.error("API 키가 설정되지 않았습니다. 좌측 사이드바에서 설정해 주세요.")
+            if not is_llm_ready():
+                pass
             elif not plot_title.strip():
                 st.warning("제목을 입력해 주세요.")
             else:

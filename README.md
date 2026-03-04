@@ -28,18 +28,28 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3단계: 환경설정 (API 키 설정)
+### 3단계: 환경설정 (LLM 실행 방식 설정)
 
-이 프로그램은 Google Gemini(또는 기타 언어모델)의 API 키가 필요합니다. 보안상의 이유로 개인 API 키는 Github에 올라가지 않습니다.
+이 프로그램은 두 가지 방식 중 하나로 LLM을 실행할 수 있습니다.
+- `google_api` (기본): Google API Key 사용
+- `gemini_cli_oauth`: Gemini CLI OAuth 세션 사용 (API 키 불필요)
 
 1. 다운로드 받은 폴더 안에 있는 `.env.example` 파일을 복사하여 `.env` 라는 이름으로 파일을 만듭니다.
-2. 새로 만든 `.env` 파일을 메모장 등으로 열어서 임시로 적힌 `"여기에_구글_API_키를_입력하세요..."` 부분을 지우고 **본인의 실제 API 키**를 붙여넣고 저장합니다.
-3. 💡 **팁 (다중 키 지원):** 트래픽 초과를 대비해 키를 여러 개 넣고 싶다면, 쉼표(`,`)로 구분하여 나열해 주세요. 앞의 키가 막히면 다음 키로 자동 우회(Fallback)합니다.
+2. 새로 만든 `.env` 파일을 메모장 등으로 열어서 `LLM_PROVIDER`를 선택합니다.
+3. `google_api` 모드라면 `GOOGLE_API_KEY`에 실제 키를 넣습니다.
+4. 💡 **팁 (다중 키 지원):** 트래픽 초과를 대비해 키를 여러 개 넣고 싶다면, 쉼표(`,`)로 구분하여 나열해 주세요. 앞의 키가 막히면 다음 키로 자동 우회(Fallback)합니다.
 
 ```env
 # .env 파일 수정한 예시
+LLM_PROVIDER="google_api"
 GOOGLE_API_KEY="AIzaSy...진짜키1, AIzaSy...진짜키2, AIzaSy...진짜키3"
 GEMINI_MODEL="gemini-3-flash-preview"
+```
+
+Gemini CLI OAuth 모드를 쓰려면:
+```bash
+gemini
+# 브라우저 로그인 완료 후 앱에서 LLM 실행 방식 = Gemini CLI OAuth 선택
 ```
 
 ### 4단계: 프로그램 실행
@@ -163,6 +173,11 @@ APP_ACCESS_TOKEN="원하는_긴_토큰값"
 1. 키를 쉼표로 여러 개 등록 (Fallback)
 2. 모델을 더 가벼운 모델로 변경
 3. 생성 글자 수를 낮춰서 재시도
+
+### 5) Gemini CLI OAuth 모드에서 실패할 때
+1. 터미널에서 `gemini`를 실행해 로그인 상태를 갱신
+2. `~/.gemini/oauth_creds.json` 존재 여부 확인
+3. `gemini --help`가 동작하는지 확인 (CLI 설치 확인)
 
 ### 4) 모바일에서 화면이 답답할 때
 1. 긴 텍스트 영역은 접고 필요한 탭만 사용

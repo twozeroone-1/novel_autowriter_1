@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict
@@ -34,8 +36,18 @@ class AutomationState:
             return self._default_state()
 
     def _save(self, state: Dict[str, Any]) -> None:
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="auto_state_", suffix=".json", dir=str(self.path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, self.path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
     def read(self) -> Dict[str, Any]:
         return self._load()
@@ -51,6 +63,16 @@ class AutomationState:
         state["locked"] = True
         state["lock_owner"] = owner
         state["lock_acquired_at"] = now
+        self._save(state)
+        return True
+
+    def refresh_lock(self, owner: str) -> bool:
+        state = self._load()
+        if not state.get("locked"):
+            return False
+        if state.get("lock_owner") != owner:
+            return False
+        state["lock_acquired_at"] = int(time.time())
         self._save(state)
         return True
 
@@ -86,4 +108,3 @@ class AutomationState:
             state["last_success_at"] = now
             state["cycle_count"] = int(state.get("cycle_count", 0)) + 1
         self._save(state)
-

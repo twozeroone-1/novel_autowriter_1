@@ -1,11 +1,13 @@
 import json
 import os
+import re
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional
 
 # 전역 DATA_DIR 대신 프로젝트 기준 경로 지침
 BASE_DATA_DIR = Path("data/projects")
+PROJECT_NAME_PATTERN = re.compile(r"^[0-9A-Za-z가-힣 _-]+$")
 
 class Character(BaseModel):
     id: str
@@ -17,7 +19,7 @@ class Character(BaseModel):
 class ContextManager:
     def __init__(self, project_name: str = "default_project"):
         """프로젝트(작품) 이름을 기반으로 데이터 경로를 동적으로 초기화합니다."""
-        self.project_name = project_name
+        self.project_name = validate_project_name(project_name)
         self.data_dir = BASE_DATA_DIR / self.project_name
         
         # 프로젝트 폴더 및 하위 폴더 자동 생성
@@ -49,8 +51,16 @@ class ContextManager:
     def _load_json(self, path: Path) -> dict | list:
         if not path.exists():
             return {} if path.name == "config.json" else []
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            backup_path = path.with_suffix(path.suffix + ".broken")
+            try:
+                path.replace(backup_path)
+            except Exception:
+                pass
+            return {} if path.name == "config.json" else []
             
     def get_worldview_context(self) -> str:
         config = self._load_json(self.config_path)
@@ -191,5 +201,18 @@ class ContextManager:
 - 지정된 분량({length_goal}자)에 맞추어 이야기의 서술량과 사건 전개 페이스를 조절하세요. 분량을 달성하기 위한 억지 서술이나 목표치를 한참 초과하여 글이 불필요하게 늘어지는 것을 방지하고, 목표 글자 수를 엄격히 준수하세요.
 
 위의 제한 조건과 설정에 어긋나지 않도록 유의하며, 바로 소설 본문 작성을 시작하세요. 제목은 생략하고 본문만 출력하세요.
-"""
+        """
         return prompt
+
+
+def validate_project_name(name: str) -> str:
+    value = (name or "").strip()
+    if not value:
+        raise ValueError("프로젝트 이름이 비어 있습니다.")
+    if value in {".", ".."}:
+        raise ValueError("프로젝트 이름이 유효하지 않습니다.")
+    if "/" in value or "\\" in value:
+        raise ValueError("프로젝트 이름에 경로 구분자(/, \\)를 사용할 수 없습니다.")
+    if not PROJECT_NAME_PATTERN.match(value):
+        raise ValueError("프로젝트 이름은 한글/영문/숫자/공백/_/- 만 사용할 수 있습니다.")
+    return value

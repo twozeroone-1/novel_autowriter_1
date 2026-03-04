@@ -6,6 +6,18 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+class LLMError(Exception):
+    """LLM 호출 계층의 공통 예외."""
+
+
+class LLMConfigError(LLMError):
+    """환경 변수/설정 오류."""
+
+
+class LLMServiceError(LLMError):
+    """외부 API 호출 실패."""
+
+
 def generate_text(prompt: str, system_instruction: Optional[str] = None, max_output_tokens: Optional[int] = None) -> str:
     """Gemini 모델을 호출하여 프롬프트에 대한 텍스트 응답을 생성합니다."""
     
@@ -20,13 +32,13 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
         
     api_key_env = os.getenv("GOOGLE_API_KEY", "")
     if not api_key_env.strip():
-        return "오류: GOOGLE_API_KEY가 설정되지 않았습니다. 설정 탭에서 API 키를 입력해주세요."
+        raise LLMConfigError("GOOGLE_API_KEY가 설정되지 않았습니다. 설정 탭에서 API 키를 입력해주세요.")
         
     # 복수 키 지원: 쉼표로 구분된 키들을 리스트로 분리
     api_keys = [k.strip() for k in api_key_env.split(",") if k.strip()]
     
     if not api_keys:
-        return "오류: 유효한 GOOGLE_API_KEY를 찾을 수 없습니다."
+        raise LLMConfigError("유효한 GOOGLE_API_KEY를 찾을 수 없습니다.")
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     last_error = None
@@ -46,13 +58,15 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
                 contents=prompt,
                 config=config,
             )
+            if not response.text:
+                raise LLMServiceError("모델 응답 본문이 비어 있습니다.")
             # 성공하면 즉시 텍스트 반환
             return response.text
             
         except Exception as e:
             error_str = str(e).lower()
             if "timeout" in error_str or "timed out" in error_str or "503" in error_str:
-                return f"서버 과열: API 응답 지연으로 생성을 중단합니다."
+                raise LLMServiceError("서버 과열: API 응답 지연으로 생성을 중단합니다.") from e
             
             # 실패하면 콘솔에 로그를 남기고 다음 키로 넘어감
             print(f"[Fallback] API Key {idx + 1}/{len(api_keys)} failed: {e}")
@@ -61,4 +75,6 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
             
     # 모든 키가 실패했을 때
     print(f"Error calling Gemini API: All provided keys failed. Last error: {last_error}")
-    return f"서버 과열: 초안 생성 중 오류가 발생했습니다 (모든 API 키 연결 시도 실패): {str(last_error)}"
+    raise LLMServiceError(
+        f"서버 과열: 생성 중 오류가 발생했습니다 (모든 API 키 연결 시도 실패): {str(last_error)}"
+    ) from last_error

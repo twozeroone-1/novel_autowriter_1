@@ -2,12 +2,12 @@ import streamlit as st
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 import time
-import datetime
 import uuid
 
 from core.generator import Generator
@@ -15,6 +15,8 @@ from core.reviewer import Reviewer
 from core.automator import Automator
 from core.planner import Planner
 from core.automation_state import AutomationState
+from core.context import validate_project_name
+from core.llm import LLMError
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -49,7 +51,16 @@ def get_project_list():
     if not base_dir.exists():
         base_dir.mkdir(parents=True)
         return []
-    return [d.name for d in base_dir.iterdir() if d.is_dir() and d.name != "default_project"]
+    result = []
+    for d in base_dir.iterdir():
+        if not d.is_dir() or d.name == "default_project":
+            continue
+        try:
+            validate_project_name(d.name)
+        except ValueError:
+            continue
+        result.append(d.name)
+    return result
 
 
 def safe_open_folder(path_obj: Path):
@@ -91,6 +102,19 @@ def auth_gate():
                 st.error("토큰이 올바르지 않습니다.")
         st.stop()
 
+
+def get_next_auto_chapter_number(chapters_dir: Path) -> int:
+    pattern = re.compile(r"^\[Auto\]\s*제\s*(\d+)화")
+    max_num = 0
+    for f in chapters_dir.iterdir():
+        if not f.is_file() or f.suffix != ".md":
+            continue
+        match = pattern.match(f.stem)
+        if not match:
+            continue
+        max_num = max(max_num, int(match.group(1)))
+    return max_num + 1 if max_num > 0 else 1
+
 def main():
     auth_gate()
     # 사이드바 (프로젝트 선택 및 환경설정)
@@ -101,19 +125,24 @@ def main():
         new_project_name = st.text_input("새 작품 이름 만들기", placeholder="예: 나의_판타지_소설")
         if st.button("➕ 새 작품 추가", use_container_width=True):
             if new_project_name.strip():
-                if new_project_name.strip() == "default_project":
+                try:
+                    validated_name = validate_project_name(new_project_name.strip())
+                except ValueError as e:
+                    st.error(str(e))
+                    validated_name = ""
+                if validated_name == "default_project":
                     st.error("'default_project'는 예약된 이름입니다. 다른 이름을 사용해 주세요.")
-                else:
+                elif validated_name:
                     # 특수문자나 띄어쓰기 가공 처리 없이 통과 (폴더명으로 사용)
-                    target_dir = Path("data/projects") / new_project_name.strip()
+                    target_dir = Path("data/projects") / validated_name
                     if not target_dir.exists():
                         target_dir.mkdir(parents=True)
-                        st.session_state['current_project'] = new_project_name.strip()
+                        st.session_state['current_project'] = validated_name
                         # 새 프로젝트 생성 시 이전 프로젝트의 UI 텍스트(session_state) 초기화
                         for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
                             if key in st.session_state:
                                 del st.session_state[key]
-                        st.success(f"'{new_project_name}' 작품이 생성되었습니다.")
+                        st.success(f"'{validated_name}' 작품이 생성되었습니다.")
                         st.rerun()
                     else:
                         st.error("이미 존재하는 작품 이름입니다.")
@@ -424,18 +453,23 @@ def main():
                 st.warning("지시사항을 입력해 주세요.")
             else:
                 with st.spinner(f"작가가 원고를 집필 중입니다 (목표: {target_length}자 내외)... ☕"):
-                    draft = generator.create_chapter(
-                        user_instruction,
-                        target_length,
-                        include_plot=use_plot,
-                        plot_strength=plot_strength,
-                    )
-                    st.session_state['current_draft'] = draft
-                    st.session_state['current_title'] = chapter_title
-                    # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태를 삭제하여 화면이 value 값을 정상 로드하도록 처리
-                    if 'edited_draft' in st.session_state:
-                        del st.session_state['edited_draft']
-                    st.success("초안 생성이 완료되었습니다!")
+                    try:
+                        draft = generator.create_chapter(
+                            user_instruction,
+                            target_length,
+                            include_plot=use_plot,
+                            plot_strength=plot_strength,
+                        )
+                        st.session_state['current_draft'] = draft
+                        st.session_state['current_title'] = chapter_title
+                        # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태를 삭제하여 화면이 value 값을 정상 로드하도록 처리
+                        if 'edited_draft' in st.session_state:
+                            del st.session_state['edited_draft']
+                        st.success("초안 생성이 완료되었습니다!")
+                    except LLMError as e:
+                        st.error(f"초안 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"초안 생성 중 알 수 없는 오류: {e}")
                     
         if 'current_draft' in st.session_state:
             st.divider()
@@ -488,10 +522,15 @@ def main():
             
             if st.button("현재 원고 검토 요청", type="primary"):
                 with st.spinner("편집자가 원고를 꼼꼼히 읽고 있습니다... 👓"):
-                    report = reviewer.review_chapter(edited_draft_to_review)
-                    st.session_state['review_report'] = report
-                    st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
-                    st.session_state['reviewing_title'] = review_title
+                    try:
+                        report = reviewer.review_chapter(edited_draft_to_review)
+                        st.session_state['review_report'] = report
+                        st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
+                        st.session_state['reviewing_title'] = review_title
+                    except LLMError as e:
+                        st.error(f"검수 요청 실패: {e}")
+                    except Exception as e:
+                        st.error(f"검수 중 알 수 없는 오류: {e}")
                 
         if 'review_report' in st.session_state:
             st.divider()
@@ -515,12 +554,17 @@ def main():
             st.subheader("리포트 피드백 반영")
             if st.button("✨ 리포트 피드백을 반영하여 초안 자동 수정", type="primary"):
                 with st.spinner("작가가 피드백을 반영하여 원고를 수정하고 있습니다... ✍️"):
-                    revised = reviewer.revise_draft(st.session_state.get('reviewing_draft', draft_to_review), st.session_state['review_report'])
-                    st.session_state['revised_draft'] = revised
-                    # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태 삭제
-                    if 'edited_revised_draft' in st.session_state:
-                        del st.session_state['edited_revised_draft']
-                    st.success("수정본 작성이 완료되었습니다!")
+                    try:
+                        revised = reviewer.revise_draft(st.session_state.get('reviewing_draft', draft_to_review), st.session_state['review_report'])
+                        st.session_state['revised_draft'] = revised
+                        # [버그 픽스] value 속성과 충돌하지 않도록 이전 위젯 상태 삭제
+                        if 'edited_revised_draft' in st.session_state:
+                            del st.session_state['edited_revised_draft']
+                        st.success("수정본 작성이 완료되었습니다!")
+                    except LLMError as e:
+                        st.error(f"수정본 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"수정본 생성 중 알 수 없는 오류: {e}")
                     
         if 'revised_draft' in st.session_state:
             st.divider()
@@ -540,9 +584,14 @@ def main():
                 st.success(f"수정본 파일이 저장되었습니다: `{saved_path}`")
                 
                 with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다 (필요시 자동 압축 🔄)..."):
-                    new_summary = generator.summarize_chapter(st.session_state['edited_revised_draft'])
-                    generator.ctx.update_summary(new_summary, generator_instance=generator)
-                    st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가/압축)이 완료되었습니다!")
+                    try:
+                        new_summary = generator.summarize_chapter(st.session_state['edited_revised_draft'])
+                        generator.ctx.update_summary(new_summary, generator_instance=generator)
+                        st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가/압축)이 완료되었습니다!")
+                    except LLMError as e:
+                        st.error(f"요약 갱신 실패: {e}")
+                    except Exception as e:
+                        st.error(f"요약 갱신 중 알 수 없는 오류: {e}")
 
     with tab4:
         st.header("🤖 반자동 연재 모드 (Semi-Auto Mode)")
@@ -703,10 +752,15 @@ def main():
                 snap = auto_state.read()
                 next_run = int(snap.get("next_run_at", 0))
                 if next_run > 0:
-                    st.session_state['next_run_time'] = float(next_run)
-                    st.session_state['fully_auto_running'] = True
-                    st.success("체크포인트를 복구했습니다.")
-                    st.rerun()
+                    lock_ok = auto_state.acquire_lock(st.session_state["auto_owner_id"])
+                    if not lock_ok:
+                        st.error("다른 세션이 락을 보유 중이라 복구할 수 없습니다. 먼저 락 해제를 확인하세요.")
+                    else:
+                        st.session_state['next_run_time'] = float(next_run)
+                        st.session_state['fully_auto_running'] = True
+                        auto_state.checkpoint(status="RUNNING", next_run_at=next_run)
+                        st.success("체크포인트를 복구했습니다.")
+                        st.rerun()
                 else:
                     st.info("복구 가능한 체크포인트가 없습니다.")
 
@@ -745,6 +799,7 @@ def main():
                     st.rerun()
 
         if st.session_state['fully_auto_running'] and st.session_state['next_run_time']:
+            auto_state.refresh_lock(st.session_state["auto_owner_id"])
             now = time.time()
             remaining_seconds = int(st.session_state['next_run_time'] - now)
             
@@ -763,10 +818,7 @@ def main():
                 st.warning("🔄 시간이 다 되었습니다! 다음 회차를 생성합니다...")
                 
                 # 1. 파일 개수로 제목 추론
-                saved_files = []
-                if generator.chapters_dir.exists():
-                    saved_files = [f for f in generator.chapters_dir.iterdir() if f.is_file() and f.suffix == '.md']
-                next_chapter_num = len(saved_files) + 1
+                next_chapter_num = get_next_auto_chapter_number(generator.chapters_dir)
                 auto_title = f"[Auto] 제 {next_chapter_num}화"
                 
                 # 2. 범용 지시사항 설정
@@ -816,12 +868,17 @@ def main():
                 st.error("API 키가 설정되지 않았습니다. 좌측 사이드바에서 설정해 주세요.")
             else:
                 with st.spinner("트렌드 기반 아이디어를 생성 중입니다..."):
-                    result = planner.suggest_ideas(
-                        platform_name=idea_platform,
-                        user_keywords=idea_keywords,
-                        tone=idea_tone,
-                    )
-                    st.session_state["idea_result"] = result
+                    try:
+                        result = planner.suggest_ideas(
+                            platform_name=idea_platform,
+                            user_keywords=idea_keywords,
+                            tone=idea_tone,
+                        )
+                        st.session_state["idea_result"] = result
+                    except LLMError as e:
+                        st.error(f"아이디어 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"아이디어 생성 중 알 수 없는 오류: {e}")
         if st.session_state.get("idea_result"):
             st.text_area("추천 결과", value=st.session_state["idea_result"], height=360, key="idea_result_view")
 
@@ -843,15 +900,20 @@ def main():
                 st.warning("제목을 입력해 주세요.")
             else:
                 with st.spinner("플롯을 설계 중입니다..."):
-                    result = planner.build_macro_plot(
-                        platform_name=plot_platform,
-                        title=plot_title,
-                        phase1_focus=phase1_focus,
-                        phase2_focus=phase2_focus,
-                        phase3_focus=phase3_focus,
-                        total_episodes=300,
-                    )
-                    st.session_state["plot_result"] = result
+                    try:
+                        result = planner.build_macro_plot(
+                            platform_name=plot_platform,
+                            title=plot_title,
+                            phase1_focus=phase1_focus,
+                            phase2_focus=phase2_focus,
+                            phase3_focus=phase3_focus,
+                            total_episodes=300,
+                        )
+                        st.session_state["plot_result"] = result
+                    except LLMError as e:
+                        st.error(f"플롯 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"플롯 생성 중 알 수 없는 오류: {e}")
         if st.session_state.get("plot_result"):
             st.text_area("플롯 결과", value=st.session_state["plot_result"], height=360, key="plot_result_view")
             c_plot1, c_plot2 = st.columns(2)

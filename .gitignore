@@ -1,6 +1,8 @@
-    venv/
+venv/
+.venv/
 .env
 __pycache__/
 *.pyc
 .vscode/
 .DS_Store
+data/projects/*/automation_state.json

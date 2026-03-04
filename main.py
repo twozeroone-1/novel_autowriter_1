@@ -186,7 +186,7 @@ def main():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드", "[5] 자동화 연재 모드"])
 
     with tab1:
-        st.header("📚 프로젝트 통합 설정")
+        st.header("📚 프로젝트 통합 설정 (OpenClaw 포맷)")
         st.markdown(
             "이곳에 적힌 네 가지 문서(`STORY_BIBLE`, `STYLE_GUIDE`, `CONTINUITY`, `STATE`)가 "
             "AI의 뇌 속으로 들어가 **절대 설정**과 **현재 상황**을 인식하게 만듭니다. 줄글 형식으로 자유롭게 편집하세요."

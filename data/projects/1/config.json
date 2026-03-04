@@ -1,7 +1,7 @@
 {
-    "worldview": "여기에 세계관(STORY_BIBLE)을 작성하세요.",
-    "tone_and_manner": "여기에 문체(STYLE_GUIDE) 지침을 작성하세요.",
-    "continuity": "여기에 절대 변경 불가 룰, 연표, 관계도(CONTINUITY)를 작성하세요.",
-    "state": "여기에 현재 회차 떡밥, 갈등 상황, 감정선(STATE)을 작성하세요.",
+    "worldview": "",
+    "tone_and_manner": "",
+    "continuity": "",
+    "state": "",
     "summary_of_previous": "여기에 지난 줄거리 요약이 누적됩니다."
 }

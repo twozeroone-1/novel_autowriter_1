@@ -6,14 +6,12 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-def generate_text(prompt: str, system_instruction: Optional[str] = None, max_output_tokens: Optional[int] = None) -> str:
+def generate_text(prompt: str, system_instruction: Optional[str] = None) -> str:
     """Gemini 모델을 호출하여 프롬프트에 대한 텍스트 응답을 생성합니다."""
     
-    config_args = {"temperature": 0.7}
-    if max_output_tokens is not None:
-        config_args["max_output_tokens"] = max_output_tokens
-        
-    config = types.GenerateContentConfig(**config_args)
+    config = types.GenerateContentConfig(
+        temperature=0.7,
+    )
     
     if system_instruction:
         config.system_instruction = system_instruction
@@ -31,15 +29,9 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     last_error = None
     
-    # 10초 타임아웃, 재시도 안함 (서버 과열 시 무한 로딩 방지)
-    http_opts = types.HttpOptions(
-        timeout=10, 
-        retry_options=types.HttpRetryOptions(attempts=0)
-    )
-    
     for idx, api_key in enumerate(api_keys):
         try:
-            client = genai.Client(api_key=api_key, http_options=http_opts)
+            client = genai.Client(api_key=api_key)
             
             response = client.models.generate_content(
                 model=model_name,
@@ -50,10 +42,6 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
             return response.text
             
         except Exception as e:
-            error_str = str(e).lower()
-            if "timeout" in error_str or "timed out" in error_str or "503" in error_str:
-                return f"서버 과열: API 응답 지연으로 생성을 중단합니다."
-            
             # 실패하면 콘솔에 로그를 남기고 다음 키로 넘어감
             print(f"[Fallback] API Key {idx + 1}/{len(api_keys)} failed: {e}")
             last_error = e
@@ -61,4 +49,4 @@ def generate_text(prompt: str, system_instruction: Optional[str] = None, max_out
             
     # 모든 키가 실패했을 때
     print(f"Error calling Gemini API: All provided keys failed. Last error: {last_error}")
-    return f"서버 과열: 초안 생성 중 오류가 발생했습니다 (모든 API 키 연결 시도 실패): {str(last_error)}"
+    return f"초안 생성 중 오류가 발생했습니다 (모든 API 키 연결 시도 실패): {str(last_error)}"

@@ -74,14 +74,14 @@ class Generator:
     def elaborate_worldview(self, draft_content: str) -> str:
         """사용자가 입력한 세계관 초안을 바탕으로 AI가 구체적인 세계관을 생성합니다."""
         prompt = f"""당신은 탑티어 웹소설 세계관 기획자입니다.
-작가가 구상한 다음 '세계관 초안'을 바탕으로 핵심 설정(배경, 마법/기연/시스템 체계, 주요 세력이나 갈등 요소)만 빠르게 정리해주세요.
+작가가 구상한 다음 '세계관 초안'을 바탕으로, 독자들이 흥미를 느낄 만한 구체적이고 매력적인 세계관 설정(배경, 마법/기연/시스템 체계, 주요 세력이나 갈등 요소 등)으로 디테일을 더해주세요.
 
 [세계관 초안]
 {draft_content}
 
-주의: 절대 장황하게 쓰지 마세요. 반드시 3~4문단(최대 500자 이내)으로 핵심만 간결하게 압축해서 출력하세요."""
+너무 장황하지 않게 3~4문단 정도로 핵심 설정 위주로 정리해 주세요."""
         print(">> 세계관 구체화 중...")
-        result = generate_text(prompt, system_instruction="너는 핵심만 극도로 압축해서 전달하는 기획자야.", max_output_tokens=800)
+        result = generate_text(prompt, system_instruction="너는 상상력이 풍부하고 체계적인 세계관 기획자야.")
         return result.strip()
 
     def generate_tone(self, worldview: str) -> str:

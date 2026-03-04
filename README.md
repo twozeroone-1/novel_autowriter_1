@@ -63,6 +63,17 @@ gemini
 streamlit run main.py
 ```
 
+### 5단계: 빠른 검증(권장)
+
+가상환경 기준으로 문법/기본 테스트를 빠르게 확인할 수 있습니다.
+
+```bash
+# Linux/WSL
+source .venv/bin/activate
+python -m py_compile main.py core/*.py core/ui/*.py
+python -m unittest discover -s tests -q
+```
+
 ---
 
 ## 🔄 컴퓨터 재시작 후 다시 실행할 때 (일상적인 사용)

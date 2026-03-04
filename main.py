@@ -24,8 +24,8 @@ load_dotenv(override=True)
 
 def set_env_variable(key: str, value: str):
     """ .env 파일의 특정 환경 변수를 업데이트하거나 새로 기록합니다. """
-    env_file = ".env"
-    if not os.path.exists(env_file):
+    env_file = Path(__file__).resolve().parent / ".env"
+    if not env_file.exists():
         with open(env_file, "w", encoding="utf-8") as f:
             f.write("")
             

@@ -195,40 +195,30 @@ def main():
         # UI 레이아웃을 위한 2단 분할
         c1, c2 = st.columns(2)
         
-        # 위젯 생성 전 session_state 초기화 (기존 데이터 로드)
-        if 'ta_worldview' not in st.session_state:
-            st.session_state['ta_worldview'] = config.get("worldview", "")
-        if 'ta_tone' not in st.session_state:
-            st.session_state['ta_tone'] = config.get("tone_and_manner", "")
-        if 'ta_continuity' not in st.session_state:
-            st.session_state['ta_continuity'] = config.get("continuity", "")
-        if 'ta_state' not in st.session_state:
-            st.session_state['ta_state'] = config.get("state", "")
-
         with c1:
             st.subheader("1. STORY BIBLE (세계관 및 연재 목표)")
             worldview_text = st.text_area(
                 "세계관, 기본 배경, 인물 설정, 연재 목표 (분량/수위) 등", 
-                height=250, key="ta_worldview"
+                value=config.get("worldview", ""), height=250, key="ta_worldview"
             )
             
             st.subheader("2. STYLE GUIDE (문체 지침)")
             tone_text = st.text_area(
                 "시점 변경 규칙, 장문/단문 비율, 대사 빈도, 금지 표현 등", 
-                height=250, key="ta_tone"
+                value=config.get("tone_and_manner", ""), height=250, key="ta_tone"
             )
             
         with c2:
             st.subheader("3. CONTINUITY (고정 설정 및 연표)")
             continuity_text = st.text_area(
                 "🔒 절대 바꾸면 안 되는 룰, 나이/지명/연표, 인물 관계도 등", 
-                height=250, key="ta_continuity"
+                value=config.get("continuity", ""), height=250, key="ta_continuity"
             )
             
             st.subheader("4. STATE (현재 상태 및 떡밥)")
             state_text = st.text_area(
                 "🧩 최근 회차 기준, 미해결 떡밥, 터진 갈등 상황, 인물 감정선", 
-                height=250, key="ta_state"
+                value=config.get("state", ""), height=250, key="ta_state"
             )
             
         st.divider()

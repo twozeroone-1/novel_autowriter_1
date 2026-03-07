@@ -1,16 +1,48 @@
+import json
 import os
 from typing import Optional
-from google import genai
-from google.genai import types
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv(*args, **kwargs):
+        return False
+
+try:
+    from google import genai
+    from google.genai import types
+except ModuleNotFoundError:
+    genai = None
+    types = None
 
 load_dotenv(override=True)
 
 class LLMError(RuntimeError):
     """Raised when the Gemini client cannot produce usable text."""
 
+
+def _extract_last_json_object(raw_text: str) -> Optional[dict]:
+    decoder = json.JSONDecoder()
+    starts = [idx for idx, ch in enumerate(raw_text) if ch == "{"]
+    fallback: Optional[dict] = None
+    for start in starts:
+        fragment = raw_text[start:]
+        try:
+            obj, _ = decoder.raw_decode(fragment)
+        except Exception:
+            continue
+
+        if isinstance(obj, dict):
+            if "response" in obj:
+                return obj
+            fallback = obj
+
+    return fallback
+
 def generate_text(prompt: str, system_instruction: Optional[str] = None) -> str:
     """Gemini 모델을 호출하여 프롬프트에 대한 텍스트 응답을 생성합니다."""
+    if genai is None or types is None:
+        raise LLMError("google-genai 패키지가 설치되지 않았습니다. `pip install -r requirements.txt` 후 다시 시도해주세요.")
     
     config = types.GenerateContentConfig(
         temperature=0.7,

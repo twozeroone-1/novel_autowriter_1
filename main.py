@@ -10,6 +10,7 @@ from core.generator import Generator
 from core.reviewer import Reviewer
 from core.automator import Automator
 from core.llm import LLMError
+from core.planner import Planner
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -33,6 +34,20 @@ PROJECT_STATE_KEYS = [
     "auto_title",
     "auto_inst",
     "auto_len",
+    "gen_use_plot",
+    "gen_plot_strength",
+    "idea_platform",
+    "idea_keywords",
+    "idea_tone",
+    "idea_result",
+    "idea_result_view",
+    "plot_platform",
+    "plot_title",
+    "plot_phase1",
+    "plot_phase2",
+    "plot_phase3",
+    "plot_result",
+    "plot_result_view",
 ]
 PROJECT_NAME_PATTERN = re.compile(r"^[0-9A-Za-z가-힣 _-]{1,50}$")
 
@@ -217,20 +232,38 @@ def main():
     generator = Generator(project_name=st.session_state['current_project'])
     reviewer = Reviewer(project_name=st.session_state['current_project'])
     automator = Automator(project_name=st.session_state['current_project'])
+    planner = Planner()
     config_path_hint = generator.ctx.config_path.as_posix()
     chars_path_hint = generator.ctx.chars_path.as_posix()
     
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["[1] 프로젝트 통합 설정", "[2] 회차 생성", "[3] 원고 검수", "[4] 반자동 연재 모드"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "[1] 프로젝트 통합 설정",
+        "[2] 회차 생성",
+        "[3] 원고 검수",
+        "[4] 반자동 연재 모드",
+        "[5] 아이디어/제목",
+        "[6] 대형 플롯",
+    ])
 
     with tab1:
+        pending_widget_reset = st.session_state.pop("_pending_project_textarea_reset", None)
+        if pending_widget_reset:
+            reset_keys = pending_widget_reset if isinstance(pending_widget_reset, list) else [pending_widget_reset]
+            for widget_key in reset_keys:
+                st.session_state.pop(widget_key, None)
+
         st.header("📚 프로젝트 통합 설정 (OpenClaw 포맷)")
         st.markdown(
             "이곳에 적힌 네 가지 문서(`STORY_BIBLE`, `STYLE_GUIDE`, `CONTINUITY`, `STATE`)가 "
             "AI의 뇌 속으로 들어가 **절대 설정**과 **현재 상황**을 인식하게 만듭니다. 줄글 형식으로 자유롭게 편집하세요."
         )
+        st.caption("AI 보조는 필드별로 분리되어 있으며, 각 버튼은 해당 필드만 짧게 처리해 토큰 사용량을 줄입니다.")
+        pending_project_notice = st.session_state.pop("_pending_project_notice", "")
+        if pending_project_notice:
+            st.success(pending_project_notice)
         
         config = generator.ctx.get_config()
         
@@ -243,12 +276,63 @@ def main():
                 "세계관, 기본 배경, 인물 설정, 연재 목표 (분량/수위) 등", 
                 value=config.get("worldview", ""), height=250, key="ta_worldview"
             )
+            story_btn1, story_btn2 = st.columns(2)
+            with story_btn1:
+                if st.button("✨ STORY_BIBLE 구체화", key="assist_worldview_expand", use_container_width=True):
+                    if not worldview_text.strip():
+                        st.warning("먼저 STORY BIBLE에 핵심 설정 초안을 적어주세요.")
+                    elif not os.getenv("GOOGLE_API_KEY"):
+                        st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                    else:
+                        with st.spinner("AI가 STORY BIBLE을 짧고 선명하게 구체화 중입니다..."):
+                            try:
+                                elaborated_text = generator.elaborate_worldview(worldview_text)
+                                config["worldview"] = elaborated_text
+                                generator.ctx.save_config(config)
+                                st.session_state["_pending_project_textarea_reset"] = "ta_worldview"
+                                st.session_state["_pending_project_notice"] = "STORY BIBLE 구체화가 반영되었습니다."
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"STORY BIBLE 구체화 중 오류가 발생했습니다: {e}")
+            with story_btn2:
+                if st.button("🗜️ STORY_BIBLE 압축", key="assist_worldview_compress", use_container_width=True):
+                    if not worldview_text.strip():
+                        st.warning("압축할 STORY BIBLE 내용이 없습니다.")
+                    elif not os.getenv("GOOGLE_API_KEY"):
+                        st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                    else:
+                        with st.spinner("AI가 STORY BIBLE 핵심만 압축 정리 중입니다..."):
+                            try:
+                                compressed_text = generator.compress_worldview(worldview_text)
+                                config["worldview"] = compressed_text
+                                generator.ctx.save_config(config)
+                                st.session_state["_pending_project_textarea_reset"] = "ta_worldview"
+                                st.session_state["_pending_project_notice"] = "STORY BIBLE 압축 정리가 반영되었습니다."
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"STORY BIBLE 압축 중 오류가 발생했습니다: {e}")
             
             st.subheader("2. STYLE GUIDE (문체 지침)")
             tone_text = st.text_area(
                 "시점 변경 규칙, 장문/단문 비율, 대사 빈도, 금지 표현 등", 
                 value=config.get("tone_and_manner", ""), height=250, key="ta_tone"
             )
+            if st.button("✨ STYLE_GUIDE 규칙 정리", key="assist_tone_structure", use_container_width=True):
+                if not tone_text.strip():
+                    st.warning("먼저 STYLE GUIDE 초안을 적어주세요.")
+                elif not os.getenv("GOOGLE_API_KEY"):
+                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                else:
+                    with st.spinner("AI가 STYLE GUIDE를 짧은 규칙 목록으로 정리 중입니다..."):
+                        try:
+                            structured_tone = generator.structure_style_guide(tone_text)
+                            config["tone_and_manner"] = structured_tone
+                            generator.ctx.save_config(config)
+                            st.session_state["_pending_project_textarea_reset"] = "ta_tone"
+                            st.session_state["_pending_project_notice"] = "STYLE GUIDE 정리가 반영되었습니다."
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"STYLE GUIDE 정리 중 오류가 발생했습니다: {e}")
             
         with c2:
             st.subheader("3. CONTINUITY (고정 설정 및 연표)")
@@ -256,12 +340,44 @@ def main():
                 "🔒 절대 바꾸면 안 되는 룰, 나이/지명/연표, 인물 관계도 등", 
                 value=config.get("continuity", ""), height=250, key="ta_continuity"
             )
+            if st.button("✨ CONTINUITY 고정 설정 정리", key="assist_continuity_structure", use_container_width=True):
+                if not continuity_text.strip():
+                    st.warning("먼저 CONTINUITY 초안을 적어주세요.")
+                elif not os.getenv("GOOGLE_API_KEY"):
+                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                else:
+                    with st.spinner("AI가 CONTINUITY를 고정 설정 문서로 정리 중입니다..."):
+                        try:
+                            structured_continuity = generator.structure_continuity(continuity_text)
+                            config["continuity"] = structured_continuity
+                            generator.ctx.save_config(config)
+                            st.session_state["_pending_project_textarea_reset"] = "ta_continuity"
+                            st.session_state["_pending_project_notice"] = "CONTINUITY 정리가 반영되었습니다."
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"CONTINUITY 정리 중 오류가 발생했습니다: {e}")
             
             st.subheader("4. STATE (현재 상태 및 떡밥)")
             state_text = st.text_area(
                 "🧩 최근 회차 기준, 미해결 떡밥, 터진 갈등 상황, 인물 감정선", 
                 value=config.get("state", ""), height=250, key="ta_state"
             )
+            if st.button("✨ STATE 현재 상태 요약", key="assist_state_summarize", use_container_width=True):
+                if not state_text.strip():
+                    st.warning("먼저 STATE 초안을 적어주세요.")
+                elif not os.getenv("GOOGLE_API_KEY"):
+                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
+                else:
+                    with st.spinner("AI가 STATE를 현재 상황 중심으로 요약 중입니다..."):
+                        try:
+                            summarized_state = generator.summarize_state(state_text)
+                            config["state"] = summarized_state
+                            generator.ctx.save_config(config)
+                            st.session_state["_pending_project_textarea_reset"] = "ta_state"
+                            st.session_state["_pending_project_notice"] = "STATE 요약이 반영되었습니다."
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"STATE 요약 중 오류가 발생했습니다: {e}")
             
         st.divider()
         col_btn1, col_btn2 = st.columns([1, 4])
@@ -275,27 +391,7 @@ def main():
                 st.success("설정이 성공적으로 저장되었습니다.")
         
         with col_btn2:
-            if st.button("✨ 설정 뼈대 구체화 (AI 보조)", type="primary", use_container_width=True):
-                if not worldview_text.strip():
-                    st.warning("먼저 STORY BIBLE (세계관) 입력창에 이야기의 뼈대나 핵심 설정을 간단히 적어주세요.")
-                elif not os.getenv("GOOGLE_API_KEY"):
-                    st.error("API 키가 설정되지 않았습니다. 좌측 사이드바 설정을 확인해 주세요.")
-                else:
-                    with st.spinner("AI가 세계관에 살을 붙이고 있습니다... 🧠"):
-                        try:
-                            # 1. API 호출로 구체화된 텍스트 생성
-                            elaborated_text = generator.elaborate_worldview(worldview_text)
-                            
-                            # 2. config 데이터 업데이트 및 저장
-                            config["worldview"] = elaborated_text
-                            generator.ctx.save_config(config)
-                            
-                            # 3. session_state 업데이트 및 화면 새로고침
-                            st.session_state['ta_worldview'] = elaborated_text
-                            st.success("세계관 구체화 성공! 내용이 자동으로 변경되었습니다.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"구체화 중 오류가 발생했습니다: {e}")
+            st.info("AI 보조는 각 필드 아래 버튼에서 개별 실행됩니다. STORY_BIBLE만 확장 기능을 두고, 나머지는 요약/정리 중심으로 동작합니다.")
 
         st.divider()
         # [과거 줄거리 요약 (시스템 자동 누적)]
@@ -313,15 +409,23 @@ def main():
             import json
             
             st.markdown("### 1. 원터치 자동 추출 (AI 어시스턴트)")
-            st.info("위 '1. STORY BIBLE'에 작성된 세계관을 바탕으로 AI가 주요 인물을 자동으로 분석하여 아래 JSON 양식으로 채워줍니다.")
-            if st.button("✨ STORY BIBLE에서 모든 주요 등장인물 자동 추출", type="primary", use_container_width=True):
-                if not config.get("worldview", "").strip():
-                    st.warning("위의 STORY BIBLE 입력창이 비어 있습니다. 먼저 세계관이나 등장인물을 대략적으로 적어주세요.")
+            st.info("AI가 STORY BIBLE, CONTINUITY, STATE, 최근 줄거리 요약 일부를 함께 참고하여 주요 인물을 자동으로 분석합니다.")
+            if st.button("✨ 프로젝트 설정에서 주요 등장인물 자동 추출", type="primary", use_container_width=True):
+                if not any(
+                    config.get(field, "").strip()
+                    for field in ("worldview", "continuity", "state", "summary_of_previous")
+                ):
+                    st.warning("캐릭터 추출에 사용할 설정이 비어 있습니다. STORY BIBLE이나 CONTINUITY, STATE를 먼저 적어주세요.")
                 else:
-                    with st.spinner("AI가 세계관을 읽고 핵심 인물을 분석 중입니다... 🕵️"):
+                    with st.spinner("AI가 프로젝트 설정을 읽고 핵심 인물을 분석 중입니다... 🕵️"):
                         try:
                             # generator 로직을 호출하여 AI가 캐릭터 JSON 배열 생성
-                            extracted_json_str = generator.generate_characters(config["worldview"])
+                            extracted_json_str = generator.generate_characters(
+                                worldview=config.get("worldview", ""),
+                                continuity=config.get("continuity", ""),
+                                state=config.get("state", ""),
+                                summary_of_previous=config.get("summary_of_previous", ""),
+                            )
                             
                             # 생성된 문자열이 정상적인 JSON 구조인지 파싱 테스트
                             parsed_chars = json.loads(extracted_json_str)
@@ -379,6 +483,23 @@ def main():
                                        value="레온과 세리아가 숲속에서 길을 잃고 몬스터와 처음 조우하는 장면을 긴장감 있게 써줘. 세리아가 마법을 쓰려다 실수하는 장면 포함할 것.",
                                        height=150)
         target_length = st.number_input("생성 분량(글자 수) 목표치", min_value=500, max_value=20000, value=5000, step=500, help="원하는 글자수를 지정하세요. AI가 사건의 묘사나 대화를 조절하여 이 분량을 맞추려 노력합니다.")
+        saved_plot_outline = generator.ctx.get_plot_outline()
+        use_plot = st.checkbox(
+            "📌 저장된 대형 플롯을 이번 회차 생성에 반영",
+            value=False,
+            key="gen_use_plot",
+            disabled=not bool(saved_plot_outline),
+        )
+        plot_strength = st.selectbox(
+            "플롯 반영 강도",
+            options=["loose", "balanced", "strict"],
+            index=1,
+            key="gen_plot_strength",
+            disabled=not use_plot,
+            help="loose: 느슨하게 참고 / balanced: 권장 / strict: 플롯 우선",
+        )
+        if not saved_plot_outline:
+            st.caption("저장된 플롯이 없어서 플롯 반영 옵션이 비활성화됩니다. [6] 대형 플롯 탭에서 먼저 생성해 주세요.")
         
         col1, col2 = st.columns([1, 2])
         with col1:
@@ -395,7 +516,12 @@ def main():
             else:
                 with st.spinner(f"작가가 원고를 집필 중입니다 (목표: {target_length}자 내외)... ☕"):
                     try:
-                        draft = generator.create_chapter(user_instruction, target_length)
+                        draft = generator.create_chapter(
+                            user_instruction,
+                            target_length,
+                            include_plot=use_plot,
+                            plot_strength=plot_strength,
+                        )
                     except LLMError as e:
                         st.error(f"초안 생성 중 오류가 발생했습니다: {e}")
                     except Exception as e:
@@ -648,6 +774,111 @@ def main():
                 
                 st.success("설정이 저장되었습니다. 다음 회차를 준비합니다.")
                 st.rerun()
+
+    with tab5:
+        st.header("💡 아이디어/제목 추천")
+        st.markdown("플랫폼 성향과 관심 키워드를 바탕으로 웹소설 아이디어와 제목 후보를 생성합니다.")
+
+        idea_platform = st.text_input(
+            "플랫폼",
+            value="문피아, 카카오페이지, 노벨피아, 네이버시리즈",
+            key="idea_platform",
+        )
+        idea_keywords = st.text_input(
+            "관심 키워드(쉼표 구분)",
+            value="회귀, 아카데미, 성장, 코미디",
+            key="idea_keywords",
+        )
+        idea_tone = st.selectbox(
+            "원하는 톤",
+            options=["가볍고 팝한", "다크하고 강한", "정통 판타지"],
+            index=0,
+            key="idea_tone",
+        )
+
+        if st.button("✨ 아이디어/제목 생성", type="primary", use_container_width=True, key="btn_idea_gen"):
+            if not os.getenv("GOOGLE_API_KEY"):
+                st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+            else:
+                with st.spinner("트렌드 기반 아이디어를 생성 중입니다..."):
+                    try:
+                        st.session_state["idea_result"] = planner.suggest_ideas(
+                            platform_name=idea_platform,
+                            user_keywords=idea_keywords,
+                            tone=idea_tone,
+                        )
+                    except LLMError as e:
+                        st.error(f"아이디어 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"아이디어 생성 중 알 수 없는 오류: {e}")
+
+        if st.session_state.get("idea_result"):
+            st.text_area("추천 결과", value=st.session_state["idea_result"], height=360, key="idea_result_view")
+
+    with tab6:
+        st.header("🧭 대형 플롯 설계")
+        st.markdown("300화 장편 기준으로 30화 단위 대사건을 포함한 플롯을 생성하고 저장합니다.")
+
+        p1, p2 = st.columns(2)
+        with p1:
+            plot_platform = st.text_input("플랫폼", value="노벨피아", key="plot_platform")
+            plot_title = st.text_input("작품 제목", value="망한 아카데미에서 살아남는 법", key="plot_title")
+            phase1_focus = st.text_area(
+                "1~100화 중점",
+                value="독자 어그로용 떡밥과 장르 정착",
+                height=90,
+                key="plot_phase1",
+            )
+        with p2:
+            phase2_focus = st.text_area(
+                "101~200화 중점",
+                value="중형 떡밥 회수와 스케일 확장",
+                height=90,
+                key="plot_phase2",
+            )
+            phase3_focus = st.text_area(
+                "201~300화 중점",
+                value="세계관 비밀 공개와 대단원",
+                height=90,
+                key="plot_phase3",
+            )
+
+        if st.button("🧠 대형 플롯 생성", type="primary", use_container_width=True, key="btn_plot_gen"):
+            if not os.getenv("GOOGLE_API_KEY"):
+                st.error("API 키가 설정되지 않았습니다. 사이드바 설정을 확인해 주세요.")
+            elif not plot_title.strip():
+                st.warning("제목을 입력해 주세요.")
+            else:
+                with st.spinner("플롯을 설계 중입니다..."):
+                    try:
+                        st.session_state["plot_result"] = planner.build_macro_plot(
+                            platform_name=plot_platform,
+                            title=plot_title,
+                            phase1_focus=phase1_focus,
+                            phase2_focus=phase2_focus,
+                            phase3_focus=phase3_focus,
+                            total_episodes=300,
+                        )
+                    except LLMError as e:
+                        st.error(f"플롯 생성 실패: {e}")
+                    except Exception as e:
+                        st.error(f"플롯 생성 중 알 수 없는 오류: {e}")
+
+        if st.session_state.get("plot_result"):
+            st.text_area("플롯 결과", value=st.session_state["plot_result"], height=360, key="plot_result_view")
+            col_plot1, col_plot2 = st.columns(2)
+            with col_plot1:
+                if st.button("💾 플롯을 프로젝트 설정에 저장", use_container_width=True, key="btn_plot_save"):
+                    generator.ctx.save_plot_outline(st.session_state["plot_result"])
+                    st.success("플롯이 저장되었습니다. [2] 회차 생성에서 선택 반영할 수 있습니다.")
+            with col_plot2:
+                if st.button("📥 저장된 플롯 불러오기", use_container_width=True, key="btn_plot_load"):
+                    saved_plot = generator.ctx.get_plot_outline()
+                    if saved_plot:
+                        st.session_state["plot_result"] = saved_plot
+                        st.success("저장된 플롯을 불러왔습니다.")
+                    else:
+                        st.info("저장된 플롯이 없습니다.")
 
 if __name__ == "__main__":
     main()

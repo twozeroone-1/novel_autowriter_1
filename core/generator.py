@@ -12,9 +12,20 @@ class Generator:
         self.chapters_dir = self.ctx.data_dir / "chapters"
         self.chapters_dir.mkdir(parents=True, exist_ok=True)
         
-    def create_chapter(self, instruction: str, length_goal: int = 5000) -> str:
+    def create_chapter(
+        self,
+        instruction: str,
+        length_goal: int = 5000,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
         """컨텍스트를 모아 LLM에 전달하고 생성된 원고 텍스트를 반환합니다."""
-        prompt = self.ctx.build_generation_prompt(instruction, length_goal)
+        prompt = self.ctx.build_generation_prompt(
+            instruction,
+            length_goal,
+            include_plot=include_plot,
+            plot_strength=plot_strength,
+        )
         print(f">> [{self.ctx.project_name}] 작품 생성 요청 중...")
         system_instruction = f"너는 사용자가 제시한 목표 분량(공백 포함 약 {length_goal}자 내외)을 엄격하게 지키으면서 기승전결이 있는 전개를 작성하는 프로 웹소설 작가야."
         result = generate_text(prompt, system_instruction=system_instruction)
@@ -95,9 +106,99 @@ class Generator:
 [세계관 초안]
 {draft_content}
 
-너무 장황하지 않게 3~4문단 정도로 핵심 설정 위주로 정리해 주세요."""
+너무 장황하지 않게 4~6개 핵심 항목 중심으로 정리해 주세요.
+- 설정을 새로 과도하게 발명하지 말 것
+- 독자가 바로 이해할 수 있는 수준으로 명확하게 쓸 것
+- 총 분량은 700자 이내로 제한할 것"""
         print(">> 세계관 구체화 중...")
         result = generate_text(prompt, system_instruction="너는 상상력이 풍부하고 체계적인 세계관 기획자야.")
+        return result.strip()
+
+    def compress_worldview(self, draft_content: str) -> str:
+        """세계관 텍스트를 더 짧고 선명한 설정 문서로 압축합니다."""
+        prompt = f"""다음 STORY BIBLE 초안을 작가 작업용 핵심 설정 문서로 압축해 주세요.
+
+[원본 STORY BIBLE]
+{draft_content}
+
+[요구사항]
+- 핵심만 남길 것
+- 5~8개 항목 이내
+- 각 항목은 짧은 문장 1~2개
+- 배경/핵심 규칙/주요 갈등/주인공 목표 중심
+- 새 설정을 지어내지 말고 원문 정보만 재정리할 것"""
+        print(">> 세계관 압축 정리 중...")
+        result = generate_text(prompt, system_instruction="너는 긴 설정 문서를 짧고 선명하게 정리하는 편집자야.")
+        return result.strip()
+
+    def structure_style_guide(self, draft_content: str) -> str:
+        """문체 지침 초안을 짧은 규칙 목록으로 정리합니다."""
+        prompt = f"""다음 STYLE GUIDE 초안을 실제 집필에 바로 쓸 수 있는 규칙 목록으로 정리해 주세요.
+
+[원본 STYLE GUIDE]
+{draft_content}
+
+[출력 조건]
+- 6~10개 규칙
+- 각 규칙은 한 줄
+- 시점, 문장 길이, 대사 비율, 묘사 밀도, 금지 표현, 감정선 처리 우선
+- 새 취향을 덧붙이지 말고 원문 의도만 정리할 것"""
+        print(">> 문체 지침 정리 중...")
+        result = generate_text(prompt, system_instruction="너는 작가의 문체 요구를 짧은 규칙집으로 정리하는 에디터야.")
+        return result.strip()
+
+    def structure_continuity(self, draft_content: str) -> str:
+        """CONTINUITY 초안을 불변 규칙 중심으로 재정리합니다."""
+        prompt = f"""다음 CONTINUITY 초안을 고정 설정 문서로 재정리해 주세요.
+
+[원본 CONTINUITY]
+{draft_content}
+
+[출력 형식]
+[절대 불변 규칙]
+- ...
+
+[연표/사실]
+- ...
+
+[관계/상태]
+- ...
+
+[주의사항]
+- 새 설정을 추가하지 말 것
+- 모호한 문장은 짧고 단정적으로 다듬을 것
+- 전체 길이는 500자 안팎으로 제한할 것"""
+        print(">> 고정 설정 정리 중...")
+        result = generate_text(prompt, system_instruction="너는 설정 충돌을 막기 위해 고정 규칙만 선명하게 정리하는 편집자야.")
+        return result.strip()
+
+    def summarize_state(self, draft_content: str) -> str:
+        """STATE 초안을 현재 진행 상태 중심으로 압축합니다."""
+        prompt = f"""다음 STATE 초안을 다음 회차 집필용 현재 상황 요약으로 정리해 주세요.
+
+[원본 STATE]
+{draft_content}
+
+[출력 형식]
+[현재 갈등]
+- ...
+
+[인물 감정선]
+- ...
+
+[미해결 떡밥]
+- ...
+
+[다음 회차 목표]
+- ...
+
+[주의사항]
+- 최근 상황만 남길 것
+- 장기 세계관 설명은 삭제할 것
+- 새 사건을 추가하지 말 것
+- 전체 길이는 400자 안팎으로 제한할 것"""
+        print(">> 현재 상태 요약 중...")
+        result = generate_text(prompt, system_instruction="너는 장기 설정과 현재 진행 상황을 분리해 짧게 정리하는 스토리 에디터야.")
         return result.strip()
 
     def generate_tone(self, worldview: str) -> str:
@@ -112,11 +213,78 @@ class Generator:
         result = generate_text(prompt, system_instruction="너는 작품에 색깔을 입히는 웹소설 기획자야.")
         return result.strip()
         
-    def generate_characters(self, worldview: str) -> str:
-        """세계관을 바탕으로 어울리는 주요 등장인물들의 JSON 배열을 추출 및 생성합니다."""
+    def _trim_recent_summary_for_characters(self, summary_text: str, max_chars: int = 1200) -> str:
+        summary_text = summary_text.strip()
+        if not summary_text:
+            return ""
+        if len(summary_text) <= max_chars:
+            return summary_text
+
+        marker = "[진행된 줄거리 요약]"
+        if marker in summary_text:
+            chunks = [chunk.strip() for chunk in summary_text.split(marker) if chunk.strip()]
+            selected: list[str] = []
+            total = 0
+            for chunk in reversed(chunks):
+                chunk_len = len(chunk)
+                if total and total + chunk_len > max_chars:
+                    break
+                selected.append(chunk)
+                total += chunk_len
+                if total >= max_chars:
+                    break
+            if selected:
+                recent_joined = f"\n\n{marker}\n".join(reversed(selected))
+                return f"{marker}\n{recent_joined}"
+
+        return summary_text[-max_chars:]
+
+    def _build_character_extraction_source(
+        self,
+        worldview: str,
+        continuity: str = "",
+        state: str = "",
+        summary_of_previous: str = "",
+    ) -> str:
+        sections = []
+        if worldview.strip():
+            sections.append(f"[STORY BIBLE]\n{worldview.strip()}")
+        if continuity.strip():
+            sections.append(f"[CONTINUITY]\n{continuity.strip()}")
+        if state.strip():
+            sections.append(f"[STATE]\n{state.strip()}")
+
+        trimmed_summary = self._trim_recent_summary_for_characters(summary_of_previous)
+        if trimmed_summary:
+            sections.append(f"[RECENT SUMMARY]\n{trimmed_summary}")
+
+        return "\n\n".join(sections)
+
+    def generate_characters(
+        self,
+        worldview: str,
+        continuity: str = "",
+        state: str = "",
+        summary_of_previous: str = "",
+    ) -> str:
+        """핵심 설정 문서들을 바탕으로 주요 등장인물 JSON 배열을 추출 및 생성합니다."""
+        source_text = self._build_character_extraction_source(
+            worldview=worldview,
+            continuity=continuity,
+            state=state,
+            summary_of_previous=summary_of_previous,
+        )
         prompt = f"""당신은 탑티어 웹소설 기획자입니다.
-다음 세계관 텍스트를 읽고, 텍스트 내에 실제로 언급되거나 암시된 모든 주요 등장인물을 추출 및 기획해 주세요. (인원수 제한 없음)
+다음 프로젝트 설정 텍스트를 읽고, 텍스트 내에 실제로 언급되거나 암시된 주요 등장인물을 추출 및 기획해 주세요.
 주의: 반드시 텍스트에 존재하는 인물만 추출해야 하며, 절대 새로운 인물을 창작하거나 지어내지 마세요.
+우선순위:
+- 명시적으로 이름이 나온 인물
+- 반복적으로 등장하거나 관계/감정선이 언급된 인물
+- 작품 진행에 의미가 있는 조연
+제외 대상:
+- 일회성 엑스트라
+- 배경용 군중
+- 이름 없이 잠깐 스쳐가는 인물
 반드시 아래의 JSON 배열 포맷으로만 출력해야 합니다. 추가 설명이나 마크다운 백틱(```) 없이 순수 JSON 텍스트 배열만 반환하세요.
 
 포맷 예시:
@@ -130,8 +298,8 @@ class Generator:
   }}
 ]
 
-[세계관]
-{worldview}"""
+[프로젝트 설정]
+{source_text}"""
         print(">> 캐릭터 설정 생성 중...")
         result = generate_text(prompt, system_instruction="너는 매력적인 캐릭터를 짜는 웹소설 기획자야. JSON 형식으로만 답해.")
         

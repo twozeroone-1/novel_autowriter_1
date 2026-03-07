@@ -11,6 +11,8 @@ DEFAULT_CONFIG = {
     "continuity": "여기에 절대 변경 불가 룰, 연표, 관계도(CONTINUITY)를 작성하세요.",
     "state": "여기에 현재 회차 떡밥, 갈등 상황, 감정선(STATE)을 작성하세요.",
     "summary_of_previous": "여기에 지난 줄거리 요약이 누적됩니다.",
+    "plot_outline": "",
+    "plot_version": "0",
 }
 
 class Character(BaseModel):
@@ -186,12 +188,44 @@ class ContextManager:
         config["worldview"] = new_worldview
         self.save_config(config)
 
-    def build_generation_prompt(self, user_instruction: str, length_goal: int = 5000) -> str:
+    def get_plot_outline(self) -> str:
+        config = self.get_config()
+        return config.get("plot_outline", "").strip()
+
+    def save_plot_outline(self, plot_text: str):
+        config = self.get_config()
+        current_version_raw = config.get("plot_version", "0")
+        try:
+            current_version = int(str(current_version_raw))
+        except (TypeError, ValueError):
+            current_version = 0
+
+        config["plot_outline"] = plot_text.strip()
+        config["plot_version"] = str(current_version + 1)
+        self.save_config(config)
+
+    def build_generation_prompt(
+        self,
+        user_instruction: str,
+        length_goal: int = 5000,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
         """LLM에 전달할 최종 프롬프트를 조립합니다."""
         world_ctx = self.get_worldview_context()
         char_ctx = self.get_character_context()
         continuity_ctx = self.get_continuity_context()
         state_ctx = self.get_state_context()
+        plot_ctx = self.get_plot_outline()
+        plot_block = ""
+        if include_plot and plot_ctx:
+            plot_block = f"""
+[PLOT OUTLINE] (장기 플롯 가이드, 선택 반영)
+{plot_ctx}
+
+[플롯 반영 강도]
+{plot_strength}
+"""
         
         prompt = f"""당신은 훌륭한 웹소설 작가입니다. 제공된 4대 설정(STORY BIBLE, STYLE GUIDE, CONTINUITY, STATE)과 등장인물 정보를 엄격히 준수하여 다음 회차(본문)를 작성해 주세요. 특히 CONTINUITY 규칙은 절대 어기지 말고, STATE의 떡밥과 감정선을 자연스럽게 녹여내세요.
 
@@ -199,6 +233,7 @@ class ContextManager:
 {continuity_ctx}
 {state_ctx}
 {char_ctx}
+{plot_block}
 
 [이번 회차 작성 지시사항]
 {user_instruction}

@@ -11,6 +11,11 @@ from core.reviewer import Reviewer
 from core.automator import Automator
 from core.llm import LLMError
 from core.planner import Planner
+from core.token_budget import (
+    estimate_generation_cost_report,
+    get_budget_recommendations,
+    get_field_stats,
+)
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
@@ -36,6 +41,8 @@ PROJECT_STATE_KEYS = [
     "auto_len",
     "gen_use_plot",
     "gen_plot_strength",
+    "token_budget_report",
+    "token_budget_error",
     "idea_platform",
     "idea_keywords",
     "idea_tone",
@@ -78,6 +85,22 @@ def clear_project_state():
     """프로젝트별 작업 상태를 지워 다른 작품과 섞이지 않게 합니다."""
     for key in PROJECT_STATE_KEYS:
         st.session_state.pop(key, None)
+
+def format_usd(value: float | None) -> str:
+    if value is None:
+        return "-"
+    if value < 0.0001:
+        return f"${value:.6f}"
+    return f"${value:.4f}"
+
+
+def render_section_header(title: str, guide_text: str):
+    title_col, guide_col = st.columns([3, 2])
+    with title_col:
+        st.subheader(title)
+    with guide_col:
+        st.caption(f"권장 크기: {guide_text}")
+
 
 def normalize_project_name(raw_name: str) -> tuple[str | None, str | None]:
     normalized = " ".join(raw_name.strip().split())
@@ -266,12 +289,35 @@ def main():
             st.success(pending_project_notice)
         
         config = generator.ctx.get_config()
+        field_stats = get_field_stats(config)
+        budget_recommendations = get_budget_recommendations(config)
+
+        with st.expander("📏 길이 가이드와 운영 팁", expanded=False):
+            total_config_chars = sum(row["chars"] for row in field_stats)
+            st.caption("회차 생성 안정성을 위한 대략적인 운영 기준입니다. 길이보다 중복 설명과 오래된 정보 누적을 먼저 줄이는 편이 좋습니다.")
+            st.metric("핵심 설정 5개 총 글자 수", f"{total_config_chars:,}자")
+            st.dataframe(
+                [
+                    {
+                        "문서": row["label"],
+                        "현재 글자 수": row["chars"],
+                        "권장 최대": row["recommended_max_chars"],
+                        "상태": row["status"],
+                    }
+                    for row in field_stats
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            for recommendation in budget_recommendations:
+                st.write(f"- {recommendation}")
+            st.caption("실전 기준: STORY_BIBLE은 세계관과 목표만, STYLE_GUIDE는 규칙만, CONTINUITY는 불변 사실만, STATE는 최근 갈등과 다음 목표만 유지하는 편이 좋습니다.")
         
         # UI 레이아웃을 위한 2단 분할
         c1, c2 = st.columns(2)
         
         with c1:
-            st.subheader("1. STORY BIBLE (세계관 및 연재 목표)")
+            render_section_header("1. STORY BIBLE (세계관 및 연재 목표)", "700~1500자")
             worldview_text = st.text_area(
                 "세계관, 기본 배경, 인물 설정, 연재 목표 (분량/수위) 등", 
                 value=config.get("worldview", ""), height=250, key="ta_worldview"
@@ -312,7 +358,7 @@ def main():
                             except Exception as e:
                                 st.error(f"STORY BIBLE 압축 중 오류가 발생했습니다: {e}")
             
-            st.subheader("2. STYLE GUIDE (문체 지침)")
+            render_section_header("2. STYLE GUIDE (문체 지침)", "200~600자")
             tone_text = st.text_area(
                 "시점 변경 규칙, 장문/단문 비율, 대사 빈도, 금지 표현 등", 
                 value=config.get("tone_and_manner", ""), height=250, key="ta_tone"
@@ -335,7 +381,7 @@ def main():
                             st.error(f"STYLE GUIDE 정리 중 오류가 발생했습니다: {e}")
             
         with c2:
-            st.subheader("3. CONTINUITY (고정 설정 및 연표)")
+            render_section_header("3. CONTINUITY (고정 설정 및 연표)", "300~900자")
             continuity_text = st.text_area(
                 "🔒 절대 바꾸면 안 되는 룰, 나이/지명/연표, 인물 관계도 등", 
                 value=config.get("continuity", ""), height=250, key="ta_continuity"
@@ -357,7 +403,7 @@ def main():
                         except Exception as e:
                             st.error(f"CONTINUITY 정리 중 오류가 발생했습니다: {e}")
             
-            st.subheader("4. STATE (현재 상태 및 떡밥)")
+            render_section_header("4. STATE (현재 상태 및 떡밥)", "150~500자")
             state_text = st.text_area(
                 "🧩 최근 회차 기준, 미해결 떡밥, 터진 갈등 상황, 인물 감정선", 
                 value=config.get("state", ""), height=250, key="ta_state"
@@ -395,7 +441,7 @@ def main():
 
         st.divider()
         # [과거 줄거리 요약 (시스템 자동 누적)]
-        st.subheader("📜 누적된 과거 줄거리 요약 (PREVIOUS SUMMARY)")
+        render_section_header("📜 누적된 과거 줄거리 요약 (PREVIOUS SUMMARY)", "400~1200자")
         st.markdown("이 부분은 회차가 생성되고 저장될 때마다 AI가 자동으로 3줄 요약하여 누적하는 곳입니다. 직접 수정하셔도 좋습니다.")
         summary_text = st.text_area("이전 줄거리 (시스템 자동 갱신 영역)", value=config.get("summary_of_previous", ""), height=150)
         if st.button("💾 줄거리 수동 저장", key="save_sum"):
@@ -501,6 +547,100 @@ def main():
         if not saved_plot_outline:
             st.caption("저장된 플롯이 없어서 플롯 반영 옵션이 비활성화됩니다. [6] 대형 플롯 탭에서 먼저 생성해 주세요.")
         
+        budget_config = generator.ctx.get_config()
+        generation_field_stats = get_field_stats(budget_config)
+        generation_recommendations = get_budget_recommendations(budget_config)
+        total_core_chars = sum(row["chars"] for row in generation_field_stats)
+        current_model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+        with st.expander("📏 토큰/비용 예상", expanded=False):
+            st.caption("기본 표는 즉시 계산되고, 정확 토큰 수는 `countTokens` API를 눌렀을 때만 계산됩니다.")
+            st.metric("핵심 설정 5개 총 글자 수", f"{total_core_chars:,}자")
+            st.dataframe(
+                [
+                    {
+                        "문서": row["label"],
+                        "현재 글자 수": row["chars"],
+                        "권장 최대": row["recommended_max_chars"],
+                        "상태": row["status"],
+                    }
+                    for row in generation_field_stats
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            for recommendation in generation_recommendations:
+                st.write(f"- {recommendation}")
+            st.caption("정리 우선순위는 보통 `PREVIOUS_SUMMARY` → 중복되는 `STYLE_GUIDE`/`CONTINUITY` → 길어진 `STORY_BIBLE` 순서가 효율적입니다.")
+
+            calc_disabled = not bool(os.getenv("GOOGLE_API_KEY"))
+            if calc_disabled:
+                st.caption("정확 계산을 하려면 설정 탭에 GOOGLE_API_KEY가 필요합니다.")
+
+            if st.button("정확 계산 (countTokens API)", key="btn_estimate_tokens", disabled=calc_disabled):
+                with st.spinner("현재 설정과 입력 기준으로 토큰과 비용을 계산 중입니다..."):
+                    try:
+                        st.session_state["token_budget_report"] = estimate_generation_cost_report(
+                            generator=generator,
+                            instruction=user_instruction,
+                            target_length=target_length,
+                            include_plot=use_plot,
+                            plot_strength=plot_strength,
+                            model_name=current_model_name,
+                        )
+                        st.session_state["token_budget_error"] = ""
+                    except Exception as e:
+                        st.session_state["token_budget_error"] = str(e)
+                        st.session_state.pop("token_budget_report", None)
+
+            token_budget_error = st.session_state.get("token_budget_error", "")
+            if token_budget_error:
+                st.error(f"토큰 계산 중 오류가 발생했습니다: {token_budget_error}")
+
+            report = st.session_state.get("token_budget_report")
+            if report:
+                current_prompt_chars = len(
+                    generator.ctx.build_generation_prompt(
+                        user_instruction,
+                        target_length,
+                        include_plot=use_plot,
+                        plot_strength=plot_strength,
+                    )
+                )
+                report_is_stale = (
+                    report.get("prompt_chars") != current_prompt_chars
+                    or report.get("target_length") != target_length
+                    or report.get("include_plot") != use_plot
+                    or report.get("plot_strength") != plot_strength
+                )
+                if report_is_stale:
+                    st.info("입력값이나 설정이 바뀌어 현재 계산값이 이전 조건 기준일 수 있습니다. 다시 계산을 눌러 갱신하세요.")
+
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                with metric_col1:
+                    st.metric("입력 토큰", f"{report['input_tokens']:,}")
+                with metric_col2:
+                    st.metric("예상 출력 토큰", f"{report['estimated_output_tokens']:,}")
+                with metric_col3:
+                    st.metric("모델", report["model_name"])
+
+                st.caption(
+                    f"프롬프트 {report['prompt_tokens']:,} + 시스템 {report['system_tokens']:,} 토큰. 출력 추정 기준: {report['output_ratio_source']}"
+                )
+
+                cost_col1, cost_col2, cost_col3 = st.columns(3)
+                with cost_col1:
+                    st.metric("예상 입력 비용", format_usd(report["input_cost_usd"]))
+                with cost_col2:
+                    st.metric("예상 출력 비용", format_usd(report["output_cost_usd"]))
+                with cost_col3:
+                    st.metric("예상 총비용", format_usd(report["total_cost_usd"]))
+
+                if report.get("pricing"):
+                    st.caption("표시된 금액은 Google API 공식 단가 기준의 대략적인 호출 비용입니다. AI Studio 무료 쿼터가 남아 있으면 현금 청구 대신 사용량만 소모됩니다.")
+                else:
+                    st.caption("현재 모델의 공식 단가 매핑이 없어 비용은 계산하지 않았습니다.")
+
         col1, col2 = st.columns([1, 2])
         with col1:
             generate_btn = st.button("원고 초안 생성하기", type="primary")

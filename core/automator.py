@@ -39,8 +39,11 @@ class Automator:
 
         # 5. 컨텍스트 요약 갱신
         with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다 (필요시 자동 압축 🔄)..."):
-            new_summary = self.generator.summarize_chapter(revised_draft)
-            self.generator.ctx.update_summary(new_summary, generator_instance=self.generator)
-            result['new_summary'] = new_summary
+            try:
+                new_summary = self.generator.summarize_chapter(revised_draft)
+                self.generator.ctx.update_summary(new_summary, generator_instance=self.generator)
+                result['new_summary'] = new_summary
+            except Exception as exc:
+                result['summary_error'] = str(exc)
             
         return result

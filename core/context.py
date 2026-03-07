@@ -1,11 +1,17 @@
 import json
-import os
 from pathlib import Path
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, ValidationError
+from typing import List
 
 # 전역 DATA_DIR 대신 프로젝트 기준 경로 지침
 BASE_DATA_DIR = Path("data/projects")
+DEFAULT_CONFIG = {
+    "worldview": "여기에 세계관(STORY_BIBLE)을 작성하세요.",
+    "tone_and_manner": "여기에 문체(STYLE_GUIDE) 지침을 작성하세요.",
+    "continuity": "여기에 절대 변경 불가 룰, 연표, 관계도(CONTINUITY)를 작성하세요.",
+    "state": "여기에 현재 회차 떡밥, 갈등 상황, 감정선(STATE)을 작성하세요.",
+    "summary_of_previous": "여기에 지난 줄거리 요약이 누적됩니다.",
+}
 
 class Character(BaseModel):
     id: str
@@ -32,26 +38,63 @@ class ContextManager:
     def _ensure_default_files(self):
         """필수 파일이 없으면 기본 폼으로 생성합니다."""
         if not self.config_path.exists():
-            default_config = {
-                "worldview": "여기에 세계관(STORY_BIBLE)을 작성하세요.",
-                "tone_and_manner": "여기에 문체(STYLE_GUIDE) 지침을 작성하세요.",
-                "continuity": "여기에 절대 변경 불가 룰, 연표, 관계도(CONTINUITY)를 작성하세요.",
-                "state": "여기에 현재 회차 떡밥, 갈등 상황, 감정선(STATE)을 작성하세요.",
-                "summary_of_previous": "여기에 지난 줄거리 요약이 누적됩니다."
-            }
-            self.save_config(default_config)
+            self.save_config(DEFAULT_CONFIG)
             
         if not self.chars_path.exists():
             self.save_characters([])
+
+    def _default_value_for(self, path: Path) -> dict | list:
+        if path.name == "config.json":
+            return DEFAULT_CONFIG.copy()
+        return []
             
     def _load_json(self, path: Path) -> dict | list:
         if not path.exists():
-            return {} if path.name == "config.json" else []
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            return self._default_value_for(path)
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"[ContextManager] Failed to load {path}: {exc}")
+            return self._default_value_for(path)
+
+        if path.name == "config.json" and not isinstance(data, dict):
+            print(f"[ContextManager] Invalid config shape at {path}: expected object")
+            return DEFAULT_CONFIG.copy()
+
+        if path.name != "config.json" and not isinstance(data, list):
+            print(f"[ContextManager] Invalid characters shape at {path}: expected array")
+            return []
+
+        return data
+
+    def _normalize_config(self, config: dict | list) -> dict:
+        merged = DEFAULT_CONFIG.copy()
+        if isinstance(config, dict):
+            for key, default_value in DEFAULT_CONFIG.items():
+                value = config.get(key, default_value)
+                if value is None:
+                    merged[key] = default_value
+                else:
+                    merged[key] = value if isinstance(value, str) else str(value)
+        return merged
+
+    def _normalize_characters(self, chars: list | dict) -> list[dict]:
+        if not isinstance(chars, list):
+            return []
+
+        normalized: list[dict] = []
+        for index, raw_char in enumerate(chars):
+            try:
+                normalized.append(Character.model_validate(raw_char).model_dump())
+            except ValidationError as exc:
+                print(f"[ContextManager] Skipping invalid character at index {index}: {exc}")
+
+        return normalized
             
     def get_worldview_context(self) -> str:
-        config = self._load_json(self.config_path)
+        config = self.get_config()
         worldview = config.get("worldview", "")
         tone = config.get("tone_and_manner", "")
         
@@ -64,14 +107,14 @@ class ContextManager:
 """
 
     def get_continuity_context(self) -> str:
-        config = self._load_json(self.config_path)
+        config = self.get_config()
         continuity = config.get("continuity", "")
         return f"""[CONTINUITY] (고정 설정 - 절대 바꾸거나 어기면 안 되는 룰/연표/설정)
 {continuity}
 """
 
     def get_state_context(self) -> str:
-        config = self._load_json(self.config_path)
+        config = self.get_config()
         state_info = config.get("state", "")
         prev_summary = config.get("summary_of_previous", "")
         
@@ -83,36 +126,44 @@ class ContextManager:
 """
 
     def get_character_context(self) -> str:
-        chars_data = self._load_json(self.chars_path)
+        chars_data = self.get_characters()
         if not chars_data:
             return "[등장인물 정보 없음]"
             
         context = "[주요 등장인물 프로필]\n"
         for c in chars_data:
-            char = Character(**c)
+            char = Character.model_validate(c)
             context += f"- {char.name} ({char.role}): {char.description} (특징: {', '.join(char.traits)})\n"
             
         return context
         
     def get_config(self) -> dict:
         config = self._load_json(self.config_path)
-        return config if isinstance(config, dict) else {}
+        return self._normalize_config(config)
         
     def get_characters(self) -> list:
         chars = self._load_json(self.chars_path)
-        return chars if isinstance(chars, list) else []
+        return self._normalize_characters(chars)
         
     def save_config(self, config_data: dict):
+        normalized_config = self._normalize_config(config_data)
         with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, ensure_ascii=False, indent=4)
+            json.dump(normalized_config, f, ensure_ascii=False, indent=4)
             
     def save_characters(self, chars_data: list):
+        if not isinstance(chars_data, list):
+            raise ValueError("등장인물 데이터는 JSON 배열(list) 형태여야 합니다.")
+
+        normalized_chars = self._normalize_characters(chars_data)
+
+        if len(normalized_chars) != len(chars_data):
+            raise ValueError("등장인물 데이터 중 형식이 잘못된 항목이 있습니다. 각 항목은 id/name/role/description/traits를 모두 가져야 합니다.")
+
         with open(self.chars_path, "w", encoding="utf-8") as f:
-            json.dump(chars_data, f, ensure_ascii=False, indent=4)
+            json.dump(normalized_chars, f, ensure_ascii=False, indent=4)
             
     def update_summary(self, new_summary: str, generator_instance=None):
-        config = self._load_json(self.config_path)
-        if not isinstance(config, dict): config = {}
+        config = self.get_config()
             
         old_summary = config.get("summary_of_previous", "").strip()
         if old_summary:
@@ -131,8 +182,7 @@ class ContextManager:
         self.save_config(config)
             
     def update_worldview(self, new_worldview: str):
-        config = self._load_json(self.config_path)
-        if not isinstance(config, dict): config = {}
+        config = self.get_config()
         config["worldview"] = new_worldview
         self.save_config(config)
 

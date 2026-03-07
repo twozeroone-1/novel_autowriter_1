@@ -1,4 +1,4 @@
-import os
+import re
 from datetime import datetime
 from pathlib import Path
 from core.llm import generate_text
@@ -22,19 +22,35 @@ class Generator:
         
     def save_chapter(self, title: str, content: str) -> str:
         """생성된 회차를 마크다운 파일로 저장합니다."""
-        safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+        safe_title = self._build_safe_title(title)
         if not safe_title:
             safe_title = "연재_" + datetime.now().strftime("%Y%m%d%H%M%S")
             
-        filename = f"{safe_title}.md"
+        filepath = self._build_unique_filepath(safe_title, ".md")
         # 동적 디렉토리에 저장
-        filepath = self.chapters_dir / filename
-        
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(f"# {title}\n\n")
             f.write(content)
             
         return str(filepath)
+
+    def _build_safe_title(self, title: str) -> str:
+        cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", title)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+        cleaned = cleaned.replace(":", " ")
+        return cleaned
+
+    def _build_unique_filepath(self, safe_title: str, suffix: str) -> Path:
+        candidate = self.chapters_dir / f"{safe_title}{suffix}"
+        if not candidate.exists():
+            return candidate
+
+        counter = 2
+        while True:
+            candidate = self.chapters_dir / f"{safe_title}_{counter}{suffix}"
+            if not candidate.exists():
+                return candidate
+            counter += 1
         
     def summarize_chapter(self, chapter_content: str) -> str:
         """작성된 회차의 핵심 내용을 짧게 요약합니다."""

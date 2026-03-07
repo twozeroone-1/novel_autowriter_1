@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from dotenv import load_dotenv
@@ -8,10 +9,32 @@ from dotenv import load_dotenv
 from core.generator import Generator
 from core.reviewer import Reviewer
 from core.automator import Automator
+from core.llm import LLMError
 
 st.set_page_config(page_title="AI 웹소설 자동화 스튜디오", page_icon="✍️", layout="wide")
 
 load_dotenv(override=True)
+
+PROJECT_STATE_KEYS = [
+    "ta_worldview",
+    "ta_tone",
+    "ta_continuity",
+    "ta_state",
+    "current_draft",
+    "current_title",
+    "edited_draft",
+    "review_report",
+    "reviewing_draft",
+    "reviewing_title",
+    "revised_draft",
+    "edited_revised_draft",
+    "auto_state",
+    "auto_result",
+    "auto_title",
+    "auto_inst",
+    "auto_len",
+]
+PROJECT_NAME_PATTERN = re.compile(r"^[0-9A-Za-z가-힣 _-]{1,50}$")
 
 def set_env_variable(key: str, value: str):
     """ .env 파일의 특정 환경 변수를 업데이트하거나 새로 기록합니다. """
@@ -36,13 +59,42 @@ def set_env_variable(key: str, value: str):
             
     os.environ[key] = value
 
+def clear_project_state():
+    """프로젝트별 작업 상태를 지워 다른 작품과 섞이지 않게 합니다."""
+    for key in PROJECT_STATE_KEYS:
+        st.session_state.pop(key, None)
+
+def normalize_project_name(raw_name: str) -> tuple[str | None, str | None]:
+    normalized = " ".join(raw_name.strip().split())
+    if not normalized:
+        return None, "작품 이름을 입력해 주세요."
+
+    if normalized == "default_project":
+        return None, "'default_project'는 예약된 이름입니다. 다른 이름을 사용해 주세요."
+
+    if normalized in {".", ".."} or any(sep in normalized for sep in ("/", "\\", ":")):
+        return None, "작품 이름에는 경로 문자(/, \\, :)나 '.' '..'를 사용할 수 없습니다."
+
+    if not PROJECT_NAME_PATTERN.fullmatch(normalized):
+        return None, "작품 이름에는 한글, 영문, 숫자, 공백, 밑줄(_), 하이픈(-)만 사용할 수 있습니다."
+
+    return normalized, None
+
 def get_project_list():
     """data/projects 하위의 폴더 목록을 가져옵니다."""
     base_dir = Path("data/projects")
     if not base_dir.exists():
         base_dir.mkdir(parents=True)
         return []
-    return [d.name for d in base_dir.iterdir() if d.is_dir() and d.name != "default_project"]
+    projects = [d.name for d in base_dir.iterdir() if d.is_dir() and d.name != "default_project"]
+    return sorted(projects, key=str.casefold)
+
+def open_folder(path: Path):
+    if hasattr(os, "startfile"):
+        os.startfile(os.path.abspath(str(path)))
+        return
+
+    st.error("이 환경에서는 폴더 열기 기능을 사용할 수 없습니다.")
 
 def main():
     # 사이드바 (프로젝트 선택 및 환경설정)
@@ -52,25 +104,19 @@ def main():
         # 새 작품 생성 폼
         new_project_name = st.text_input("새 작품 이름 만들기", placeholder="예: 나의_판타지_소설")
         if st.button("➕ 새 작품 추가", use_container_width=True):
-            if new_project_name.strip():
-                if new_project_name.strip() == "default_project":
-                    st.error("'default_project'는 예약된 이름입니다. 다른 이름을 사용해 주세요.")
-                else:
-                    # 특수문자나 띄어쓰기 가공 처리 없이 통과 (폴더명으로 사용)
-                    target_dir = Path("data/projects") / new_project_name.strip()
-                    if not target_dir.exists():
-                        target_dir.mkdir(parents=True)
-                        st.session_state['current_project'] = new_project_name.strip()
-                        # 새 프로젝트 생성 시 이전 프로젝트의 UI 텍스트(session_state) 초기화
-                        for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        st.success(f"'{new_project_name}' 작품이 생성되었습니다.")
-                        st.rerun()
-                    else:
-                        st.error("이미 존재하는 작품 이름입니다.")
+            project_name, project_name_error = normalize_project_name(new_project_name)
+            if project_name_error:
+                st.error(project_name_error)
             else:
-                st.warning("작품 이름을 입력해 주세요.")
+                target_dir = Path("data/projects") / project_name
+                if not target_dir.exists():
+                    Generator(project_name=project_name)
+                    clear_project_state()
+                    st.session_state['current_project'] = project_name
+                    st.success(f"'{project_name}' 작품이 생성되었습니다.")
+                    st.rerun()
+                else:
+                    st.error("이미 존재하는 작품 이름입니다.")
                 
         st.divider()
         
@@ -93,10 +139,7 @@ def main():
         
         # 선택된 프로젝트 변경 시 세션 업데이트 및 UI 리로드
         if selected_project != st.session_state['current_project']:
-            # 전환 전 세션 초기화
-            for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
-                if key in st.session_state:
-                    del st.session_state[key]
+            clear_project_state()
             
             st.session_state['current_project'] = selected_project
             
@@ -118,11 +161,8 @@ def main():
                 try:
                     shutil.rmtree(target_dir)
                     st.success(f"'{st.session_state['current_project']}' 작품이 성공적으로 삭제되었습니다.")
-                    # 세션 지우기 및 초기화
+                    clear_project_state()
                     del st.session_state['current_project']
-                    for key in ['ta_worldview', 'ta_tone', 'ta_continuity', 'ta_state', 'current_draft', 'current_title', 'review_report', 'revised_draft']:
-                        if key in st.session_state:
-                            del st.session_state[key]
                             
                     # 삭제 후 남은 프로젝트가 있는지 확인 후 업데이트
                     remaining_projects = get_project_list()
@@ -177,6 +217,8 @@ def main():
     generator = Generator(project_name=st.session_state['current_project'])
     reviewer = Reviewer(project_name=st.session_state['current_project'])
     automator = Automator(project_name=st.session_state['current_project'])
+    config_path_hint = generator.ctx.config_path.as_posix()
+    chars_path_hint = generator.ctx.chars_path.as_posix()
     
     st.title(f"✍️ AI 웹소설 스튜디오 - [{st.session_state['current_project']}]")
     st.markdown("현재 선택된 작품 환경에서 설정 관리, 회차 생성, 검수를 진행합니다.")
@@ -291,6 +333,10 @@ def main():
                         except json.JSONDecodeError:
                             st.error("AI가 올바른 JSON 형식을 반환하지 못했습니다. 다시 시도해 주세요.")
                             st.code(extracted_json_str) # 디버깅용으로 잘못된 결과를 보여줌
+                        except ValueError as e:
+                            st.error(f"캐릭터 저장 형식이 올바르지 않습니다: {e}")
+                        except LLMError as e:
+                            st.error(f"캐릭터 추출 중 오류가 발생했습니다: {e}")
                         except Exception as e:
                             st.error(f"오류가 발생했습니다: {e}")
             
@@ -319,12 +365,14 @@ def main():
                     st.success("성공적으로 저장되었습니다!")
                 except json.JSONDecodeError:
                     st.error("JSON 문법 오류입니다. 괄호나 따옴표가 맞는지 확인해 주세요.")
+                except ValueError as e:
+                    st.error(f"등장인물 형식 오류입니다: {e}")
                 except Exception as e:
                     st.error(f"알 수 없는 오류가 발생했습니다: {e}")
 
     with tab2:
         st.header("다음 회차 생성기")
-        st.info("현재 설정된 세계관 (`data/config.json`) 과 등장인물 (`data/characters.json`) 데이터가 프롬프트에 자동 주입됩니다.")
+        st.info(f"현재 프로젝트의 세계관 (`{config_path_hint}`) 과 등장인물 (`{chars_path_hint}`) 데이터가 프롬프트에 자동 주입됩니다.")
         
         chapter_title = st.text_input("회차 제목 (저장용 파일명)", value="제 2화: 얼음의 숲에서")
         user_instruction = st.text_area("이번 회차 전개 지시사항", 
@@ -337,8 +385,7 @@ def main():
             generate_btn = st.button("원고 초안 생성하기", type="primary")
         with col2:
             if st.button("📂 저장폴더 열기", key="open_folder_1"):
-                abs_path = os.path.abspath(str(generator.chapters_dir))
-                os.startfile(abs_path)
+                open_folder(generator.chapters_dir)
                 
         if generate_btn:
             if not os.getenv("GOOGLE_API_KEY"):
@@ -347,12 +394,23 @@ def main():
                 st.warning("지시사항을 입력해 주세요.")
             else:
                 with st.spinner(f"작가가 원고를 집필 중입니다 (목표: {target_length}자 내외)... ☕"):
-                    draft = generator.create_chapter(user_instruction, target_length)
-                    st.session_state['current_draft'] = draft
-                    st.session_state['current_title'] = chapter_title
-                    # [버그 픽스] 스트림릿 텍스트 에어리어(key="edited_draft")에 새 원고를 강제로 즉시 덮어씌움
-                    st.session_state['edited_draft'] = draft
-                    st.success("초안 생성이 완료되었습니다!")
+                    try:
+                        draft = generator.create_chapter(user_instruction, target_length)
+                    except LLMError as e:
+                        st.error(f"초안 생성 중 오류가 발생했습니다: {e}")
+                    except Exception as e:
+                        st.error(f"초안 생성 중 알 수 없는 오류가 발생했습니다: {e}")
+                    else:
+                        st.session_state['current_draft'] = draft
+                        st.session_state['current_title'] = chapter_title.strip() or "무제"
+                        # [버그 픽스] 스트림릿 텍스트 에어리어(key="edited_draft")에 새 원고를 강제로 즉시 덮어씌움
+                        st.session_state['edited_draft'] = draft
+                        st.session_state.pop('review_report', None)
+                        st.session_state.pop('reviewing_draft', None)
+                        st.session_state.pop('reviewing_title', None)
+                        st.session_state.pop('revised_draft', None)
+                        st.session_state.pop('edited_revised_draft', None)
+                        st.success("초안 생성이 완료되었습니다!")
                     
         if 'current_draft' in st.session_state:
             st.divider()
@@ -365,12 +423,15 @@ def main():
                 save_draft_btn = st.button("현재 상태로 파일 저장 (마크다운)")
             with col2:
                 if st.button("📂 저장폴더 열기", key="open_folder_2"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    open_folder(generator.chapters_dir)
                     
             if save_draft_btn:
-                saved_path = generator.save_chapter(st.session_state['current_title'], st.session_state['edited_draft'])
-                st.success(f"파일이 저장되었습니다: `{saved_path}`")
+                try:
+                    saved_path = generator.save_chapter(st.session_state['current_title'], st.session_state['edited_draft'])
+                except Exception as e:
+                    st.error(f"파일 저장 중 오류가 발생했습니다: {e}")
+                else:
+                    st.success(f"파일이 저장되었습니다: `{saved_path}`")
                 
     with tab3:
         st.header("편집자 검수 보고서")
@@ -406,10 +467,18 @@ def main():
             
             if st.button("현재 원고 검토 요청", type="primary"):
                 with st.spinner("편집자가 원고를 꼼꼼히 읽고 있습니다... 👓"):
-                    report = reviewer.review_chapter(edited_draft_to_review)
-                    st.session_state['review_report'] = report
-                    st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
-                    st.session_state['reviewing_title'] = review_title
+                    try:
+                        report = reviewer.review_chapter(edited_draft_to_review)
+                    except LLMError as e:
+                        st.error(f"검수 중 오류가 발생했습니다: {e}")
+                    except Exception as e:
+                        st.error(f"검수 중 알 수 없는 오류가 발생했습니다: {e}")
+                    else:
+                        st.session_state['review_report'] = report
+                        st.session_state['reviewing_draft'] = edited_draft_to_review # 어떤 원고를 리뷰했는지 기억
+                        st.session_state['reviewing_title'] = review_title
+                        st.session_state.pop('revised_draft', None)
+                        st.session_state.pop('edited_revised_draft', None)
                 
         if 'review_report' in st.session_state:
             st.divider()
@@ -422,21 +491,34 @@ def main():
                     base_title = st.session_state.get('reviewing_title', "원고")
                     report_filename = f"{base_title}_검수리포트.md"
                     report_path = generator.chapters_dir / report_filename
-                    with open(report_path, "w", encoding="utf-8") as f:
-                        f.write(st.session_state['review_report'])
-                    st.success(f"리포트가 저장되었습니다: `{report_path}`")
+                    try:
+                        with open(report_path, "w", encoding="utf-8") as f:
+                            f.write(st.session_state['review_report'])
+                    except Exception as e:
+                        st.error(f"리포트 저장 중 오류가 발생했습니다: {e}")
+                    else:
+                        st.success(f"리포트가 저장되었습니다: `{report_path}`")
             with col_r2:
                 if st.button("📂 저장폴더 열기", key="open_folder_report"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    open_folder(generator.chapters_dir)
             
             st.divider()
             st.subheader("리포트 피드백 반영")
             if st.button("✨ 리포트 피드백을 반영하여 초안 자동 수정", type="primary"):
                 with st.spinner("작가가 피드백을 반영하여 원고를 수정하고 있습니다... ✍️"):
-                    revised = reviewer.revise_draft(st.session_state.get('reviewing_draft', draft_to_review), st.session_state['review_report'])
-                    st.session_state['revised_draft'] = revised
-                    st.success("수정본 작성이 완료되었습니다!")
+                    try:
+                        revised = reviewer.revise_draft(
+                            st.session_state.get('reviewing_draft', draft_to_review),
+                            st.session_state['review_report'],
+                        )
+                    except LLMError as e:
+                        st.error(f"수정본 작성 중 오류가 발생했습니다: {e}")
+                    except Exception as e:
+                        st.error(f"수정본 작성 중 알 수 없는 오류가 발생했습니다: {e}")
+                    else:
+                        st.session_state['revised_draft'] = revised
+                        st.session_state['edited_revised_draft'] = revised
+                        st.success("수정본 작성이 완료되었습니다!")
                     
         if 'revised_draft' in st.session_state:
             st.divider()
@@ -448,18 +530,27 @@ def main():
                 save_revised_btn = st.button("수정본 파일 저장 (마크다운)")
             with col2:
                 if st.button("📂 저장폴더 열기", key="open_folder_3"):
-                    abs_path = os.path.abspath(str(generator.chapters_dir))
-                    os.startfile(abs_path)
+                    open_folder(generator.chapters_dir)
                     
             if save_revised_btn:
                 base_title = st.session_state.get('reviewing_title', "수정된_원고")
-                saved_path = generator.save_chapter(base_title + "_수정본", st.session_state['edited_revised_draft'])
-                st.success(f"수정본 파일이 저장되었습니다: `{saved_path}`")
-                
-                with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다 (필요시 자동 압축 🔄)..."):
-                    new_summary = generator.summarize_chapter(st.session_state['edited_revised_draft'])
-                    generator.ctx.update_summary(new_summary, generator_instance=generator)
-                    st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가/압축)이 완료되었습니다!")
+                try:
+                    saved_path = generator.save_chapter(base_title + "_수정본", st.session_state['edited_revised_draft'])
+                except Exception as e:
+                    st.error(f"수정본 저장 중 오류가 발생했습니다: {e}")
+                else:
+                    st.success(f"수정본 파일이 저장되었습니다: `{saved_path}`")
+                    
+                    with st.spinner("다음 회차를 위해 방금 저장한 내용을 컨텍스트에 요약하여 반영 중입니다 (필요시 자동 압축 🔄)..."):
+                        try:
+                            new_summary = generator.summarize_chapter(st.session_state['edited_revised_draft'])
+                            generator.ctx.update_summary(new_summary, generator_instance=generator)
+                        except LLMError as e:
+                            st.warning(f"수정본 저장은 완료됐지만 줄거리 요약 갱신은 실패했습니다: {e}")
+                        except Exception as e:
+                            st.warning(f"수정본 저장은 완료됐지만 줄거리 요약 갱신 중 예상치 못한 오류가 발생했습니다: {e}")
+                        else:
+                            st.success("다음 회차를 위한 설정 갱신(이전 줄거리 요약 자동 추가/압축)이 완료되었습니다!")
 
     with tab4:
         st.header("🤖 반자동 연재 모드 (Semi-Auto Mode)")
@@ -510,6 +601,8 @@ def main():
             st.success("🎉 한 회차 자동 생성이 완료되었습니다! 다음 회차로 넘어가기 전 설정을 검토해 주세요.")
             
             result = st.session_state.get('auto_result', {})
+            if result.get("summary_error"):
+                st.warning(f"회차 저장은 완료됐지만 줄거리 요약 갱신은 실패했습니다: {result['summary_error']}")
             
             with st.expander("📄 [결과] 최종 수정본 확인", expanded=False):
                 st.text_area("수정본 (읽기 전용)", value=result.get('revised_draft', ''), height=400)
@@ -549,10 +642,9 @@ def main():
                 generator.ctx.save_config(current_config)
                 
                 # 상태 초기화
+                for key in ["auto_result", "auto_title", "auto_inst", "auto_len"]:
+                    st.session_state.pop(key, None)
                 st.session_state['auto_state'] = 'READY'
-                # 기존 입력값 지우기
-                if 'auto_title' in st.session_state: del st.session_state['auto_title']
-                if 'auto_inst' in st.session_state: del st.session_state['auto_inst']
                 
                 st.success("설정이 저장되었습니다. 다음 회차를 준비합니다.")
                 st.rerun()

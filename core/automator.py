@@ -22,10 +22,25 @@ class Automator:
             draft = self.generator.create_chapter(instruction, target_length)
             result['draft'] = draft
 
+        with st.spinner("생성된 초안을 마크다운 파일로 저장 중입니다... 💾"):
+            draft_path = self.generator.save_markdown_document(
+                filename_title=chapter_title + "_초안",
+                content=draft,
+                heading_title=chapter_title + " (초안)",
+            )
+            result['draft_path'] = draft_path
+
         # 2. 자동 검수
         with st.spinner("편집자가 원고를 꼼꼼히 검수하고 리포트를 작성 중입니다... 👓"):
             review_report = self.reviewer.review_chapter(draft)
             result['review_report'] = review_report
+
+        with st.spinner("검수 리포트를 마크다운 파일로 저장 중입니다... 💾"):
+            review_report_path = self.generator.save_markdown_document(
+                filename_title=chapter_title + "_검수리포트",
+                content=review_report,
+            )
+            result['review_report_path'] = review_report_path
 
         # 3. 자동 수정
         with st.spinner("작가가 피드백을 반영하여 원고를 완벽하게 고쳐 쓰는 중입니다... ✍️"):

@@ -615,9 +615,8 @@ def main():
             with col_r1:
                 if st.button("💾 이 리포트를 파일로 저장 (.md)", key="save_report_btn"):
                     base_title = st.session_state.get('reviewing_title', "원고")
-                    report_filename = f"{base_title}_검수리포트.md"
-                    report_path = generator.chapters_dir / report_filename
                     try:
+                        report_path = generator.build_output_path(base_title + "_검수리포트", ".md")
                         with open(report_path, "w", encoding="utf-8") as f:
                             f.write(st.session_state['review_report'])
                     except Exception as e:
@@ -729,6 +728,11 @@ def main():
             result = st.session_state.get('auto_result', {})
             if result.get("summary_error"):
                 st.warning(f"회차 저장은 완료됐지만 줄거리 요약 갱신은 실패했습니다: {result['summary_error']}")
+
+            with st.expander("📄 [결과] 생성된 초안", expanded=False):
+                st.text_area("초안 (읽기 전용)", value=result.get('draft', ''), height=300)
+                if result.get("draft_path"):
+                    st.info(f"💾 초안 저장 위치: `{result['draft_path']}`")
             
             with st.expander("📄 [결과] 최종 수정본 확인", expanded=False):
                 st.text_area("수정본 (읽기 전용)", value=result.get('revised_draft', ''), height=400)
@@ -736,6 +740,8 @@ def main():
                 
             with st.expander("📝 [결과] 편집자 검수 리포트", expanded=False):
                 st.markdown(result.get('review_report', ''))
+                if result.get("review_report_path"):
+                    st.info(f"💾 리포트 저장 위치: `{result['review_report_path']}`")
                 
             st.divider()
             st.subheader("⚙️ 다음 회차를 위한 설정(JSON) 갱신")

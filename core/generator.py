@@ -33,17 +33,32 @@ class Generator:
         
     def save_chapter(self, title: str, content: str) -> str:
         """생성된 회차를 마크다운 파일로 저장합니다."""
+        return self.save_markdown_document(
+            filename_title=title,
+            content=content,
+            heading_title=title,
+        )
+
+    def save_markdown_document(
+        self,
+        filename_title: str,
+        content: str,
+        heading_title: str | None = None,
+    ) -> str:
+        """안전한 파일명으로 마크다운 문서를 저장합니다."""
+        filepath = self.build_output_path(filename_title, ".md")
+        with open(filepath, "w", encoding="utf-8") as f:
+            if heading_title:
+                f.write(f"# {heading_title}\n\n")
+            f.write(content)
+        return str(filepath)
+
+    def build_output_path(self, title: str, suffix: str = ".md") -> Path:
+        """제목을 안전한 파일명으로 바꿔 중복 없는 출력 경로를 만듭니다."""
         safe_title = self._build_safe_title(title)
         if not safe_title:
             safe_title = "연재_" + datetime.now().strftime("%Y%m%d%H%M%S")
-            
-        filepath = self._build_unique_filepath(safe_title, ".md")
-        # 동적 디렉토리에 저장
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(f"# {title}\n\n")
-            f.write(content)
-            
-        return str(filepath)
+        return self._build_unique_filepath(safe_title, suffix)
 
     def _build_safe_title(self, title: str) -> str:
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", title)

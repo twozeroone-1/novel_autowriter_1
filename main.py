@@ -94,10 +94,11 @@ def format_usd(value: float | None) -> str:
     return f"${value:.4f}"
 
 
-def render_section_header(title: str, guide_text: str):
-    title_col, guide_col = st.columns([3, 2])
-    with title_col:
-        st.subheader(title)
+def render_section_header(title: str, subtitle: str, guide_text: str):
+    st.subheader(title)
+    subtitle_col, guide_col = st.columns([3, 2])
+    with subtitle_col:
+        st.caption(subtitle)
     with guide_col:
         st.caption(f"권장 크기: {guide_text}")
 
@@ -278,7 +279,7 @@ def main():
             for widget_key in reset_keys:
                 st.session_state.pop(widget_key, None)
 
-        st.header("📚 프로젝트 통합 설정 (OpenClaw 포맷)")
+        st.header("📚 프로젝트 통합 설정")
         st.markdown(
             "이곳에 적힌 네 가지 문서(`STORY_BIBLE`, `STYLE_GUIDE`, `CONTINUITY`, `STATE`)가 "
             "AI의 뇌 속으로 들어가 **절대 설정**과 **현재 상황**을 인식하게 만듭니다. 줄글 형식으로 자유롭게 편집하세요."
@@ -317,7 +318,7 @@ def main():
         c1, c2 = st.columns(2)
         
         with c1:
-            render_section_header("1. STORY BIBLE (세계관 및 연재 목표)", "700~1500자")
+            render_section_header("1. STORY BIBLE", "세계관 및 연재 목표", "700~1500자")
             worldview_text = st.text_area(
                 "세계관, 기본 배경, 인물 설정, 연재 목표 (분량/수위) 등", 
                 value=config.get("worldview", ""), height=250, key="ta_worldview"
@@ -358,7 +359,7 @@ def main():
                             except Exception as e:
                                 st.error(f"STORY BIBLE 압축 중 오류가 발생했습니다: {e}")
             
-            render_section_header("2. STYLE GUIDE (문체 지침)", "200~600자")
+            render_section_header("2. STYLE GUIDE", "문체 지침", "200~600자")
             tone_text = st.text_area(
                 "시점 변경 규칙, 장문/단문 비율, 대사 빈도, 금지 표현 등", 
                 value=config.get("tone_and_manner", ""), height=250, key="ta_tone"
@@ -381,7 +382,7 @@ def main():
                             st.error(f"STYLE GUIDE 정리 중 오류가 발생했습니다: {e}")
             
         with c2:
-            render_section_header("3. CONTINUITY (고정 설정 및 연표)", "300~900자")
+            render_section_header("3. CONTINUITY", "고정 설정 및 연표", "300~900자")
             continuity_text = st.text_area(
                 "🔒 절대 바꾸면 안 되는 룰, 나이/지명/연표, 인물 관계도 등", 
                 value=config.get("continuity", ""), height=250, key="ta_continuity"
@@ -403,7 +404,7 @@ def main():
                         except Exception as e:
                             st.error(f"CONTINUITY 정리 중 오류가 발생했습니다: {e}")
             
-            render_section_header("4. STATE (현재 상태 및 떡밥)", "150~500자")
+            render_section_header("4. STATE", "현재 상태 및 떡밥", "150~500자")
             state_text = st.text_area(
                 "🧩 최근 회차 기준, 미해결 떡밥, 터진 갈등 상황, 인물 감정선", 
                 value=config.get("state", ""), height=250, key="ta_state"
@@ -441,7 +442,7 @@ def main():
 
         st.divider()
         # [과거 줄거리 요약 (시스템 자동 누적)]
-        render_section_header("📜 누적된 과거 줄거리 요약 (PREVIOUS SUMMARY)", "400~1200자")
+        render_section_header("📜 PREVIOUS SUMMARY", "누적된 과거 줄거리 요약", "400~1200자")
         st.markdown("이 부분은 회차가 생성되고 저장될 때마다 AI가 자동으로 3줄 요약하여 누적하는 곳입니다. 직접 수정하셔도 좋습니다.")
         summary_text = st.text_area("이전 줄거리 (시스템 자동 갱신 영역)", value=config.get("summary_of_previous", ""), height=150)
         if st.button("💾 줄거리 수동 저장", key="save_sum"):

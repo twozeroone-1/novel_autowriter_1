@@ -17,6 +17,10 @@ DEFAULT_AUTOMATION_CONFIG = {
     "retry_policy": {
         "max_attempts": 2,
     },
+    "context_updates": {
+        "state": True,
+        "summary": True,
+    },
     "poll_interval_seconds": 30,
 }
 

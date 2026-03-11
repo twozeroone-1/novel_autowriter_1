@@ -12,6 +12,8 @@ DEFAULT_RUNTIME_STATE = {
     "current_job_id": None,
     "last_run_at": None,
     "last_error": "",
+    "last_context_update_status": "",
+    "last_context_update_error": "",
 }
 
 
@@ -41,6 +43,8 @@ class AutomationRuntime:
         runtime["status"] = "running"
         runtime["current_job_id"] = job.get("id")
         runtime["last_error"] = ""
+        runtime["last_context_update_status"] = ""
+        runtime["last_context_update_error"] = ""
         self.store.save_queue(queue)
         self.store.save_runtime(runtime)
 
@@ -54,11 +58,14 @@ class AutomationRuntime:
                     instruction=job.get("instruction", ""),
                     target_length=int(job.get("target_length", 5000)),
                 )
+                context_update = self._apply_context_updates(result, config)
                 job["status"] = "done"
                 runtime["status"] = "idle"
                 runtime["current_job_id"] = None
                 runtime["last_run_at"] = now.isoformat()
                 runtime["last_error"] = ""
+                runtime["last_context_update_status"] = context_update["status"]
+                runtime["last_context_update_error"] = context_update.get("error", "")
                 self.store.save_queue(queue)
                 self.store.save_runtime(runtime)
                 self.store.append_history(
@@ -68,6 +75,7 @@ class AutomationRuntime:
                         "title": job.get("title", ""),
                         "success": True,
                         "saved_path": result.get("saved_path", ""),
+                        "context_update": context_update,
                     }
                 )
                 return
@@ -89,6 +97,43 @@ class AutomationRuntime:
                 "error_text": last_error,
             }
         )
+
+    def _apply_context_updates(self, result: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        context_config = config.get("context_updates", {})
+        apply_state = bool(context_config.get("state", True))
+        apply_summary = bool(context_config.get("summary", True))
+        next_state = result.get("new_state") if apply_state else None
+        next_summary = result.get("new_summary") if apply_summary else None
+
+        if next_state is None and next_summary is None:
+            return {
+                "status": "skipped",
+                "applied": {
+                    "state": False,
+                    "summary_of_previous": False,
+                },
+            }
+
+        try:
+            applied = self.automator.apply_context_updates(
+                state=next_state,
+                summary_of_previous=next_summary,
+            )
+        except Exception as exc:
+            return {
+                "status": "partial_failure",
+                "error": str(exc),
+                "applied": {
+                    "state": False,
+                    "summary_of_previous": False,
+                },
+            }
+
+        return {
+            "status": "applied",
+            "backup": applied.get("backup", {}),
+            "applied": applied.get("applied", {}),
+        }
 
     def _load_runtime(self) -> dict:
         runtime = deepcopy(DEFAULT_RUNTIME_STATE)

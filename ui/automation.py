@@ -157,8 +157,22 @@ def render_automation_tab(app) -> None:
     default_time = _parse_time_value(schedule.get("time", "21:00"))
     default_days = [day for day in schedule.get("days", []) if day in WEEKDAY_OPTIONS]
     default_hours = int(schedule.get("hours", 24))
+    context_updates = config.get("context_updates", {})
+    default_auto_state = bool(context_updates.get("state", True))
+    default_auto_summary = bool(context_updates.get("summary", True))
 
     enabled = st.checkbox("자동화 활성화", value=config.get("enabled", False), key="automation_enabled")
+    auto_update_state = st.checkbox(
+        "회차 완료 후 STATE 자동 갱신",
+        value=default_auto_state,
+        key="automation_auto_update_state",
+    )
+    auto_update_summary = st.checkbox(
+        "회차 완료 후 PREVIOUS SUMMARY 자동 갱신",
+        value=default_auto_summary,
+        key="automation_auto_update_summary",
+    )
+
     selected_type = st.selectbox(
         "스케줄 방식",
         options=["daily", "weekly", "interval"],
@@ -207,6 +221,10 @@ def render_automation_tab(app) -> None:
         }
         config["enabled"] = enabled
         config["schedule"] = updated_schedule
+        config["context_updates"] = {
+            "state": st.session_state.get("automation_auto_update_state", default_auto_state),
+            "summary": st.session_state.get("automation_auto_update_summary", default_auto_summary),
+        }
         store.save_config(config)
         st.success("자동화 스케줄을 저장했습니다.")
         st.rerun()

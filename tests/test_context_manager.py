@@ -82,6 +82,48 @@ class TestContextManager(unittest.TestCase):
                 self.assertEqual(len(fake_generator.calls), 1)
                 self.assertEqual(manager.get_config()["summary_of_previous"], "compressed summary")
 
+    def test_build_updated_summary_text_returns_combined_preview_without_saving(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(context_module, "BASE_DATA_DIR", Path(tmpdir)):
+                manager = ContextManager(project_name="sample")
+                manager.save_config(
+                    {
+                        **context_module.DEFAULT_CONFIG,
+                        "summary_of_previous": "existing summary",
+                    }
+                )
+
+                preview = manager.build_updated_summary_text("new summary")
+
+                self.assertIn("existing summary", preview)
+                self.assertIn("new summary", preview)
+                self.assertEqual(manager.get_config()["summary_of_previous"], "existing summary")
+
+    def test_apply_context_updates_returns_backup_and_persists_new_values(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(context_module, "BASE_DATA_DIR", Path(tmpdir)):
+                manager = ContextManager(project_name="sample")
+                manager.save_config(
+                    {
+                        **context_module.DEFAULT_CONFIG,
+                        "state": "old state",
+                        "summary_of_previous": "old summary",
+                    }
+                )
+
+                result = manager.apply_context_updates(
+                    state="new state",
+                    summary_of_previous="new summary",
+                )
+
+                config = manager.get_config()
+                self.assertEqual(result["backup"]["state"], "old state")
+                self.assertEqual(result["backup"]["summary_of_previous"], "old summary")
+                self.assertTrue(result["applied"]["state"])
+                self.assertTrue(result["applied"]["summary_of_previous"])
+                self.assertEqual(config["state"], "new state")
+                self.assertEqual(config["summary_of_previous"], "new summary")
+
     def test_build_generation_prompt_includes_all_context_and_plot_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch.object(context_module, "BASE_DATA_DIR", Path(tmpdir)):

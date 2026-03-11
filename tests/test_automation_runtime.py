@@ -14,6 +14,7 @@ class FakeAutomator:
         self.should_fail = should_fail
         self.call_count = 0
         self.before_return = None
+        self.apply_calls = []
 
     def run_single_cycle(self, chapter_title: str, instruction: str, target_length: int):
         self.call_count += 1
@@ -24,6 +25,20 @@ class FakeAutomator:
         return {
             "saved_path": f"/tmp/{chapter_title}.md",
             "new_summary": "summary",
+            "new_state": "state",
+        }
+
+    def apply_context_updates(self, *, state: str | None = None, summary_of_previous: str | None = None):
+        self.apply_calls.append((state, summary_of_previous))
+        return {
+            "backup": {
+                "state": "old state",
+                "summary_of_previous": "old summary",
+            },
+            "applied": {
+                "state": bool(state),
+                "summary_of_previous": bool(summary_of_previous),
+            },
         }
 
 
@@ -36,7 +51,7 @@ class TestAutomationRuntime(unittest.TestCase):
         self.assertIsNotNone(runtime_cls, "AutomationRuntime should exist")
         return runtime_cls
 
-    def test_runtime_executes_next_pending_job_and_marks_done(self):
+    def test_runtime_executes_next_pending_job_marks_done_and_applies_context(self):
         runtime_cls = self._load_runtime_cls()
         now = datetime(2026, 3, 12, 21, 0, tzinfo=timezone.utc)
 
@@ -57,7 +72,8 @@ class TestAutomationRuntime(unittest.TestCase):
                         }
                     ]
                 )
-                runtime = runtime_cls(store=store, automator=FakeAutomator())
+                fake_automator = FakeAutomator()
+                runtime = runtime_cls(store=store, automator=fake_automator)
 
                 runtime.tick(now=now)
 
@@ -70,6 +86,8 @@ class TestAutomationRuntime(unittest.TestCase):
         self.assertEqual(state["status"], "idle")
         self.assertEqual(state["last_run_at"], now.isoformat())
         self.assertEqual(len(history), 1)
+        self.assertEqual(fake_automator.apply_calls, [("state", "summary")])
+        self.assertEqual(history[0]["context_update"]["status"], "applied")
 
     def test_runtime_marks_job_running_before_automator_call(self):
         runtime_cls = self._load_runtime_cls()
@@ -162,6 +180,43 @@ class TestAutomationRuntime(unittest.TestCase):
                 runtime.tick(now=now)
 
         self.assertEqual(fake_automator.call_count, 0)
+
+    def test_runtime_skips_context_apply_when_disabled(self):
+        runtime_cls = self._load_runtime_cls()
+        now = datetime(2026, 3, 12, 21, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            projects_dir = Path(tmpdir) / "projects"
+            with patch("core.automation_store.DATA_PROJECTS_DIR", projects_dir):
+                store = AutomationStore(project_name="sample")
+                store.save_config(
+                    {
+                        "enabled": True,
+                        "schedule": {"type": "daily", "time": "21:00"},
+                        "context_updates": {"state": False, "summary": False},
+                    }
+                )
+                store.save_queue(
+                    [
+                        {
+                            "id": "job1",
+                            "title": "Episode 12",
+                            "instruction": "scene instruction",
+                            "target_length": 5000,
+                            "status": "pending",
+                            "attempt_count": 0,
+                        }
+                    ]
+                )
+                fake_automator = FakeAutomator()
+                runtime = runtime_cls(store=store, automator=fake_automator)
+
+                runtime.tick(now=now)
+
+                history = store.load_recent_history(limit=10)
+
+        self.assertEqual(fake_automator.apply_calls, [])
+        self.assertEqual(history[0]["context_update"]["status"], "skipped")
 
     def test_run_automation_pass_processes_enabled_projects(self):
         module = importlib.import_module("core.automation_runtime")

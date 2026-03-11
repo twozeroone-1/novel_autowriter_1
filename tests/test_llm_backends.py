@@ -83,7 +83,8 @@ class TestLlmBackends(unittest.TestCase):
         self.assertEqual(result.text, "generated text")
         self.assertEqual(result.backend_used, "cli")
         command = mocked_run.call_args.args[0]
-        self.assertNotIn("--prompt", command)
+        self.assertIn("--prompt", command)
+        self.assertEqual(command[command.index("--prompt") + 1], "")
         self.assertEqual(
             mocked_run.call_args.kwargs["input"],
             compose_cli_prompt("prompt body", "system note"),

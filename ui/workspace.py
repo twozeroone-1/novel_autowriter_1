@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable
 
 import streamlit as st
@@ -22,7 +23,7 @@ from core.generator import Generator
 from core.llm import LLMError
 from core.llm_backend import GeminiCliStatus, probe_gemini_cli, resolve_backend_mode, test_gemini_cli_connection
 from core.model_catalog import get_available_models
-from core.token_budget import get_budget_recommendations, get_field_stats
+from core.token_budget import find_latest_sample_chapter, get_budget_recommendations, get_field_stats
 from ui.automation import format_runtime_status, format_schedule_summary
 from ui.diagnostics import format_sidebar_summary, get_sidebar_summary, render_diagnostics_panel
 
@@ -193,6 +194,17 @@ def summarize_text_preview(text: str, *, max_chars: int = 90, empty_fallback: st
     return f"{normalized[:max_chars].rstrip()}..."
 
 
+def resolve_summary_suggestion_source(pasted_text: str, latest_chapter_path: Path | None) -> tuple[str, str]:
+    normalized_pasted_text = str(pasted_text or "").strip()
+    if normalized_pasted_text:
+        return normalized_pasted_text, "붙여넣은 텍스트"
+
+    if latest_chapter_path and latest_chapter_path.exists():
+        return latest_chapter_path.read_text(encoding="utf-8"), f"최근 저장 원고: {latest_chapter_path.name}"
+
+    return "", ""
+
+
 def build_project_field_panels(
     specs: tuple[ProjectFieldSpec, ...],
     field_stats: list[dict],
@@ -307,6 +319,40 @@ def render_project_text_field(
                         ensure_api_key=ensure_api_key,
                         run_with_status=run_with_status,
                     )
+
+        if spec.config_key == "state":
+            source_key = "workspace_state_source_text"
+            if source_key not in st.session_state:
+                st.session_state[source_key] = ""
+
+            latest_chapter_path = find_latest_sample_chapter(generator.chapters_dir)
+            st.caption("직접 붙여넣은 텍스트나 최근 저장 원고를 기준으로 STATE 제안안을 채울 수 있습니다.")
+            if latest_chapter_path:
+                st.caption(f"소스를 비워 두면 최근 저장 원고 `{latest_chapter_path.name}` 를 사용합니다.")
+            st.text_area(
+                "STATE 제안 소스 텍스트",
+                key=source_key,
+                height=120,
+                help="직접 붙여넣은 텍스트를 우선 사용하고, 비어 있으면 최근 저장 원고를 대신 사용합니다.",
+            )
+            if st.button("AI 제안으로 STATE 채우기", key="fill_state_from_source", use_container_width=True):
+                if ensure_api_key():
+                    source_text, source_label = resolve_summary_suggestion_source(
+                        st.session_state.get(source_key, ""),
+                        latest_chapter_path,
+                    )
+                    if not source_text:
+                        st.warning("붙여넣은 텍스트가 없고, 사용할 최근 저장 원고도 찾지 못했습니다.")
+                    else:
+                        suggested_state = run_with_status(
+                            lambda: generator.summarize_state(source_text),
+                            spinner_text="AI가 STATE 제안안을 생성하는 중입니다...",
+                            error_prefix="STATE 제안 생성 중 오류가 발생했습니다",
+                        )
+                        if suggested_state is not None:
+                            st.session_state[spec.textarea_key] = suggested_state
+                            st.session_state["_pending_project_notice"] = f"{source_label} 기준 STATE 제안안을 입력창에 채웠습니다."
+                            st.rerun()
 
         return field_text
 
@@ -685,21 +731,65 @@ def render_project_settings_tab(
 
     st.divider()
     summary_value = config.get("summary_of_previous", "")
-    summary_chars = len(str(summary_value))
-    summary_preview = summarize_text_preview(summary_value, max_chars=120, empty_fallback="아직 요약이 없습니다.")
+    summary_text_key = "workspace_summary_text"
+    summary_source_key = "workspace_summary_source_text"
+    if summary_text_key not in st.session_state:
+        st.session_state[summary_text_key] = summary_value
+    if summary_source_key not in st.session_state:
+        st.session_state[summary_source_key] = ""
+
+    current_summary_text = str(st.session_state.get(summary_text_key, ""))
+    summary_chars = len(current_summary_text)
+    summary_preview = summarize_text_preview(current_summary_text, max_chars=120, empty_fallback="아직 요약이 없습니다.")
+    latest_chapter_path = find_latest_sample_chapter(generator.chapters_dir)
     with st.expander(f"PREVIOUS SUMMARY · {summary_chars:,}자", expanded=summary_chars == 0):
         st.caption("이전 줄거리 요약 · 권장 400~1200자")
         st.caption(f"현재 요약: {summary_preview}")
-        st.markdown("회차를 저장할 때 자동으로 갱신되지만, 필요하면 여기서 직접 수정할 수 있습니다.")
-        summary_text = st.text_area(
+        st.markdown("AI 제안은 입력창만 채우고, 저장 버튼을 눌렀을 때만 실제 config에 반영됩니다.")
+        if latest_chapter_path:
+            st.caption(f"소스 입력이 비어 있으면 최근 저장 원고 `{latest_chapter_path.name}` 를 기준으로 제안합니다.")
+        else:
+            st.caption("소스 입력이 비어 있으면 fallback 할 최근 저장 원고가 없습니다.")
+
+        st.text_area(
+            "요약 소스 텍스트",
+            key=summary_source_key,
+            height=150,
+            help="직접 붙여넣은 텍스트를 우선 사용하고, 비어 있으면 최근 저장 원고를 대신 사용합니다.",
+        )
+
+        suggestion_col, save_col = st.columns(2)
+        with suggestion_col:
+            if st.button("AI 제안 생성", key="fill_previous_summary", use_container_width=True):
+                if ensure_api_key():
+                    source_text, source_label = resolve_summary_suggestion_source(
+                        st.session_state.get(summary_source_key, ""),
+                        latest_chapter_path,
+                    )
+                    if not source_text:
+                        st.warning("붙여넣은 텍스트가 없고, 사용할 최근 저장 원고도 찾지 못했습니다.")
+                    else:
+                        suggested_summary = run_with_status(
+                            lambda: generator.build_summary_update_preview(source_text),
+                            spinner_text="AI가 PREVIOUS SUMMARY 제안안을 생성하는 중입니다...",
+                            error_prefix="PREVIOUS SUMMARY 제안 생성 중 오류가 발생했습니다",
+                        )
+                        st.session_state[summary_text_key] = suggested_summary
+                        st.success(f"{source_label} 기준 제안안을 입력창에 채웠습니다.")
+
+        st.text_area(
             "이전 줄거리",
-            value=summary_value,
+            key=summary_text_key,
             height=150,
         )
-        if st.button("이전 줄거리 저장", key="save_sum"):
-            config["summary_of_previous"] = summary_text
-            generator.ctx.save_config(config)
-            st.success("이전 줄거리를 저장했습니다.")
+        with save_col:
+            if st.button("이전 줄거리 저장", key="save_sum", use_container_width=True):
+                config["summary_of_previous"] = st.session_state.get(summary_text_key, "")
+                generator.ctx.save_config(config)
+                st.success("이전 줄거리를 저장했습니다.")
+
+        if st.session_state.get(summary_text_key, "") != summary_value:
+            st.caption("현재 내용은 편집기에만 반영된 상태입니다. 저장 버튼을 눌러야 config에 반영됩니다.")
 
     st.divider()
     render_character_management_panel(generator, config)

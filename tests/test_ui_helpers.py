@@ -1,9 +1,16 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from core.token_budget import get_field_stats
-from ui.app import normalize_project_name
-from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps
-from ui.workspace import ProjectFieldSpec, build_project_field_panels, summarize_text_preview
+from ui.app import PROJECT_STATE_KEYS, normalize_project_name
+from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps, select_context_update_value
+from ui.workspace import (
+    ProjectFieldSpec,
+    build_project_field_panels,
+    resolve_summary_suggestion_source,
+    summarize_text_preview,
+)
 
 
 class TestUiHelpers(unittest.TestCase):
@@ -139,6 +146,45 @@ class TestUiHelpers(unittest.TestCase):
         )
 
         self.assertEqual(kwargs, {"key": "edited_draft"})
+
+    def test_select_context_update_value_prefers_ai_suggestion(self):
+        selected = select_context_update_value("new state", "old state")
+
+        self.assertEqual(selected, "new state")
+
+    def test_select_context_update_value_falls_back_to_current_config(self):
+        selected = select_context_update_value("", "old state")
+
+        self.assertEqual(selected, "old state")
+
+    def test_resolve_summary_suggestion_source_prefers_pasted_text(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            latest_path = Path(tmpdir) / "2화.md"
+            latest_path.write_text("latest chapter text", encoding="utf-8")
+
+            source_text, source_label = resolve_summary_suggestion_source("pasted text", latest_path)
+
+        self.assertEqual(source_text, "pasted text")
+        self.assertEqual(source_label, "붙여넣은 텍스트")
+
+    def test_resolve_summary_suggestion_source_falls_back_to_latest_saved_chapter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            latest_path = Path(tmpdir) / "2화.md"
+            latest_path.write_text("latest chapter text", encoding="utf-8")
+
+            source_text, source_label = resolve_summary_suggestion_source("", latest_path)
+
+        self.assertEqual(source_text, "latest chapter text")
+        self.assertEqual(source_label, "최근 저장 원고: 2화.md")
+
+    def test_resolve_summary_suggestion_source_returns_empty_when_no_input_exists(self):
+        source_text, source_label = resolve_summary_suggestion_source("", None)
+
+        self.assertEqual(source_text, "")
+        self.assertEqual(source_label, "")
+
+    def test_project_state_keys_include_workspace_state_source_text(self):
+        self.assertIn("workspace_state_source_text", PROJECT_STATE_KEYS)
 
 
 if __name__ == "__main__":

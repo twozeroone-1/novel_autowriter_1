@@ -196,7 +196,9 @@ def _detect_cli_auth_issue(output: str) -> bool:
 
 
 def _build_cli_command(executable_path: str, model_name: str) -> list[str]:
-    command = [executable_path, "--output-format", "text"]
+    # Force the CLI into headless mode so chapter generation behaves like a
+    # one-shot text request instead of dropping into interactive agent mode.
+    command = [executable_path, "--output-format", "text", "--prompt", ""]
     if model_name.strip():
         command.extend(["--model", model_name.strip()])
     return command

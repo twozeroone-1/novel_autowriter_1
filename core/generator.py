@@ -102,6 +102,24 @@ class Generator:
         self.ctx.update_summary(new_summary, generator_instance=self)
         return new_summary
 
+    def build_summary_update_preview(self, chapter_content: str) -> str:
+        new_summary = self.summarize_chapter(chapter_content)
+        return self.ctx.build_updated_summary_text(new_summary, generator_instance=self)
+
+    def build_context_suggestions(self, chapter_content: str) -> dict[str, str]:
+        suggestions: dict[str, str] = {}
+        try:
+            suggestions["new_state"] = self.summarize_state(chapter_content)
+        except Exception as exc:
+            suggestions["state_error"] = str(exc)
+
+        try:
+            suggestions["new_summary"] = self.build_summary_update_preview(chapter_content)
+        except Exception as exc:
+            suggestions["summary_error"] = str(exc)
+
+        return suggestions
+
     def compress_history_summary(self, long_summary: str) -> str:
         """누적된 과거 줄거리가 너무 길어지면 이를 계층형(시즌 요약 + 최근 전개)으로 초압축합니다."""
         prompt = f"""당신은 탑티어 웹소설 편집자입니다.

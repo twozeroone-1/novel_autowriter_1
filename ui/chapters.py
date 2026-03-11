@@ -47,6 +47,13 @@ def build_session_bound_text_area_kwargs(
     return kwargs
 
 
+def select_context_update_value(suggested_value: str, current_value: str) -> str:
+    suggested_text = str(suggested_value).strip()
+    if suggested_text:
+        return suggested_text
+    return str(current_value)
+
+
 def render_workflow_steps(labels: tuple[str, ...], current_step: int) -> None:
     steps = build_workflow_steps(labels, current_step)
     cols = st.columns(len(steps))
@@ -184,7 +191,7 @@ def save_chapter_and_notify(
 
     st.success(f"{success_prefix}: `{saved_path}`")
     if summary_failure_prefix:
-        sync_summary_after_save(generator, content, summary_failure_prefix)
+        st.info("저장된 원고의 컨텍스트 반영은 AI 제안 검토 후 진행하도록 바뀌었습니다.")
     return saved_path
 
 
@@ -414,6 +421,62 @@ def render_generation_tab(app: Any) -> None:
             summary_failure_prefix="초안 저장",
         )
 
+    st.divider()
+    st.subheader("컨텍스트 제안")
+    st.caption("초안을 기준으로 다음 회차용 STATE와 누적 PREVIOUS SUMMARY 제안을 만들 수 있습니다.")
+
+    if st.button("초안 기준 컨텍스트 제안 생성", key="generation_generate_context", use_container_width=True):
+        context_result = run_with_status(
+            lambda: generator.build_context_suggestions(st.session_state["edited_draft"]),
+            "STATE/PREVIOUS SUMMARY 제안을 생성하는 중입니다...",
+            llm_error_prefix="컨텍스트 제안 생성 중 오류가 발생했습니다",
+            error_prefix="컨텍스트 제안 생성 중 예상치 못한 오류가 발생했습니다",
+        )
+        if context_result is not None:
+            st.session_state["generation_context_result"] = context_result
+            st.session_state.pop("generation_context_state", None)
+            st.session_state.pop("generation_context_summary", None)
+
+    generation_context_result = st.session_state.get("generation_context_result", {})
+    if generation_context_result:
+        if generation_context_result.get("state_error"):
+            st.warning(f"STATE 제안 생성에 실패했습니다: {generation_context_result['state_error']}")
+        if generation_context_result.get("summary_error"):
+            st.warning(f"PREVIOUS SUMMARY 제안 생성에 실패했습니다: {generation_context_result['summary_error']}")
+
+        current_config = generator.ctx.get_config()
+        generation_state_default = select_context_update_value(
+            generation_context_result.get("new_state", ""),
+            current_config.get("state", ""),
+        )
+        generation_summary_default = select_context_update_value(
+            generation_context_result.get("new_summary", ""),
+            current_config.get("summary_of_previous", ""),
+        )
+
+        state_col, summary_col = st.columns(2)
+        with state_col:
+            generation_state = st.text_area(
+                "검토 후 반영할 CURRENT STATE",
+                value=generation_state_default,
+                height=200,
+                key="generation_context_state",
+            )
+        with summary_col:
+            generation_summary = st.text_area(
+                "검토 후 반영할 PREVIOUS SUMMARY",
+                value=generation_summary_default,
+                height=200,
+                key="generation_context_summary",
+            )
+
+        if st.button("프로젝트 컨텍스트에 반영", key="apply_generation_context", use_container_width=True):
+            generator.ctx.apply_context_updates(
+                state=generation_state,
+                summary_of_previous=generation_summary,
+            )
+            st.success("STATE와 PREVIOUS SUMMARY를 반영했습니다.")
+
 
 def render_review_tab(app: Any) -> None:
     generator = app.generator
@@ -542,6 +605,63 @@ def render_review_tab(app: Any) -> None:
             summary_failure_prefix="수정본 저장",
         )
 
+    if "revised_draft" in st.session_state:
+        st.divider()
+        st.subheader("컨텍스트 제안")
+        st.caption("수정본을 기준으로 다음 회차용 STATE와 누적 PREVIOUS SUMMARY 제안을 만들 수 있습니다.")
+
+        if st.button("수정본 기준 컨텍스트 제안 생성", key="review_generate_context", use_container_width=True):
+            context_result = run_with_status(
+                lambda: generator.build_context_suggestions(st.session_state["edited_revised_draft"]),
+                "STATE/PREVIOUS SUMMARY 제안을 생성하는 중입니다...",
+                llm_error_prefix="컨텍스트 제안 생성 중 오류가 발생했습니다",
+                error_prefix="컨텍스트 제안 생성 중 예상치 못한 오류가 발생했습니다",
+            )
+            if context_result is not None:
+                st.session_state["review_context_result"] = context_result
+                st.session_state.pop("review_context_state", None)
+                st.session_state.pop("review_context_summary", None)
+
+        review_context_result = st.session_state.get("review_context_result", {})
+        if review_context_result:
+            if review_context_result.get("state_error"):
+                st.warning(f"STATE 제안 생성에 실패했습니다: {review_context_result['state_error']}")
+            if review_context_result.get("summary_error"):
+                st.warning(f"PREVIOUS SUMMARY 제안 생성에 실패했습니다: {review_context_result['summary_error']}")
+
+            current_config = generator.ctx.get_config()
+            review_state_default = select_context_update_value(
+                review_context_result.get("new_state", ""),
+                current_config.get("state", ""),
+            )
+            review_summary_default = select_context_update_value(
+                review_context_result.get("new_summary", ""),
+                current_config.get("summary_of_previous", ""),
+            )
+
+            state_col, summary_col = st.columns(2)
+            with state_col:
+                review_state = st.text_area(
+                    "검토 후 반영할 CURRENT STATE",
+                    value=review_state_default,
+                    height=200,
+                    key="review_context_state",
+                )
+            with summary_col:
+                review_summary = st.text_area(
+                    "검토 후 반영할 PREVIOUS SUMMARY",
+                    value=review_summary_default,
+                    height=200,
+                    key="review_context_summary",
+                )
+
+            if st.button("프로젝트 컨텍스트에 반영", key="apply_review_context", use_container_width=True):
+                generator.ctx.apply_context_updates(
+                    state=review_state,
+                    summary_of_previous=review_summary,
+                )
+                st.success("STATE와 PREVIOUS SUMMARY를 반영했습니다.")
+
 
 def render_auto_mode_tab(app: Any) -> None:
     generator = app.generator
@@ -597,6 +717,8 @@ def render_auto_mode_tab(app: Any) -> None:
         st.success("반자동 실행이 완료되었습니다. 다음 회차용 상태만 확인하고 저장하면 됩니다.")
 
         result = st.session_state.get("auto_result", {})
+        if result.get("state_error"):
+            st.warning(f"STATE 제안 생성에 실패했습니다: {result['state_error']}")
         if result.get("summary_error"):
             st.warning(f"이전 줄거리 요약 갱신은 실패했습니다: {result['summary_error']}")
 
@@ -620,18 +742,23 @@ def render_auto_mode_tab(app: Any) -> None:
         st.markdown("방금 생성한 결과를 바탕으로 `STATE`와 `PREVIOUS SUMMARY`를 검토한 뒤 저장해 주세요.")
 
         current_config = generator.ctx.get_config()
+        suggested_state = select_context_update_value(result.get("new_state", ""), current_config.get("state", ""))
+        suggested_summary = select_context_update_value(
+            result.get("new_summary", ""),
+            current_config.get("summary_of_previous", ""),
+        )
         state_col, summary_col = st.columns(2)
         with state_col:
             new_state = st.text_area(
                 "CURRENT STATE 업데이트",
-                value=current_config.get("state", ""),
+                value=suggested_state,
                 height=200,
                 help="현재 갈등과 다음 회차 목표를 최신 상태로 정리해 주세요.",
             )
         with summary_col:
             new_summary = st.text_area(
                 "PREVIOUS SUMMARY",
-                value=current_config.get("summary_of_previous", ""),
+                value=suggested_summary,
                 height=200,
                 help="자동 갱신 결과를 검토하고 필요하면 수정해 주세요.",
             )

@@ -3,9 +3,28 @@ import unittest
 from core.automator import Automator
 
 
+class FakeContext:
+    def __init__(self):
+        self.apply_calls = []
+
+    def apply_context_updates(self, *, state: str | None = None, summary_of_previous: str | None = None):
+        self.apply_calls.append((state, summary_of_previous))
+        return {
+            "backup": {
+                "state": "old state",
+                "summary_of_previous": "old summary",
+            },
+            "applied": {
+                "state": bool(state),
+                "summary_of_previous": bool(summary_of_previous),
+            },
+        }
+
+
 class FakeGenerator:
     def __init__(self):
         self.calls = []
+        self.ctx = FakeContext()
 
     def create_chapter(self, instruction: str, target_length: int) -> str:
         self.calls.append(("create_chapter", instruction, target_length))
@@ -19,9 +38,12 @@ class FakeGenerator:
         self.calls.append(("save_chapter", title, content))
         return f"/tmp/{title}.md"
 
-    def summarize_and_update_context(self, chapter_content: str) -> str:
-        self.calls.append(("summarize_and_update_context", chapter_content))
-        return "summary text"
+    def build_context_suggestions(self, chapter_content: str) -> dict[str, str]:
+        self.calls.append(("build_context_suggestions", chapter_content))
+        return {
+            "new_state": "state text",
+            "new_summary": "summary text",
+        }
 
 
 class FakeReviewer:
@@ -58,7 +80,7 @@ class TestAutomator(unittest.TestCase):
         messages: list[str] = []
 
         result = automator.run_single_cycle(
-            chapter_title="1화",
+            chapter_title="Episode 1",
             instruction="scene instruction",
             target_length=3000,
             step_context=lambda message: RecordingStepContext(messages, message),
@@ -67,31 +89,51 @@ class TestAutomator(unittest.TestCase):
         self.assertEqual(result["draft"], "draft text")
         self.assertEqual(result["review_report"], "review report")
         self.assertEqual(result["revised_draft"], "revised draft")
+        self.assertEqual(result["new_state"], "state text")
         self.assertEqual(result["new_summary"], "summary text")
         self.assertEqual(len(messages), 7)
         self.assertEqual(generator.calls[0], ("create_chapter", "scene instruction", 3000))
         self.assertEqual(reviewer.calls[0], ("review_chapter", "draft text"))
         self.assertEqual(reviewer.calls[1], ("revise_draft", "draft text", "review report"))
+        self.assertEqual(generator.calls[-1], ("build_context_suggestions", "revised draft"))
 
-    def test_run_single_cycle_captures_summary_error(self):
+    def test_run_single_cycle_keeps_summary_error_in_result(self):
         generator = FakeGenerator()
         reviewer = FakeReviewer()
         automator = Automator(project_name="sample", generator=generator, reviewer=reviewer)
 
-        def fail_summary(_: str) -> str:
-            raise RuntimeError("summary failed")
+        def build_context_suggestions(_: str) -> dict[str, str]:
+            return {
+                "new_state": "state text",
+                "summary_error": "summary failed",
+            }
 
-        generator.summarize_and_update_context = fail_summary  # type: ignore[method-assign]
+        generator.build_context_suggestions = build_context_suggestions  # type: ignore[method-assign]
 
         result = automator.run_single_cycle(
-            chapter_title="1화",
+            chapter_title="Episode 1",
             instruction="scene instruction",
             target_length=1000,
         )
 
         self.assertEqual(result["draft"], "draft text")
-        self.assertEqual(result["saved_path"], "/tmp/1화.md")
+        self.assertEqual(result["saved_path"], "/tmp/Episode 1.md")
+        self.assertEqual(result["new_state"], "state text")
         self.assertEqual(result["summary_error"], "summary failed")
+
+    def test_apply_context_updates_delegates_to_generator_context(self):
+        generator = FakeGenerator()
+        reviewer = FakeReviewer()
+        automator = Automator(project_name="sample", generator=generator, reviewer=reviewer)
+
+        result = automator.apply_context_updates(
+            state="new state",
+            summary_of_previous="new summary",
+        )
+
+        self.assertEqual(generator.ctx.apply_calls, [("new state", "new summary")])
+        self.assertTrue(result["applied"]["state"])
+        self.assertTrue(result["applied"]["summary_of_previous"])
 
 
 if __name__ == "__main__":

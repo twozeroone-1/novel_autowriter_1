@@ -1,7 +1,9 @@
+import json
 import re
 from datetime import datetime
 from pathlib import Path
-from core.llm import generate_text
+from core.file_utils import atomic_write_text
+from core.llm import _extract_first_json_value, generate_text
 from core.context import ContextManager
 
 class Generator:
@@ -47,10 +49,10 @@ class Generator:
     ) -> str:
         """안전한 파일명으로 마크다운 문서를 저장합니다."""
         filepath = self.build_output_path(filename_title, ".md")
-        with open(filepath, "w", encoding="utf-8") as f:
-            if heading_title:
-                f.write(f"# {heading_title}\n\n")
-            f.write(content)
+        markdown_text = content
+        if heading_title:
+            markdown_text = f"# {heading_title}\n\n{content}"
+        atomic_write_text(filepath, markdown_text)
         return str(filepath)
 
     def build_output_path(self, title: str, suffix: str = ".md") -> Path:
@@ -89,6 +91,11 @@ class Generator:
         print(">> 회차 요약 생성 중...")
         result = generate_text(prompt, system_instruction="너는 줄거리 파악과 요약에 능통한 편집자야.")
         return result.strip()
+
+    def summarize_and_update_context(self, chapter_content: str) -> str:
+        new_summary = self.summarize_chapter(chapter_content)
+        self.ctx.update_summary(new_summary, generator_instance=self)
+        return new_summary
 
     def compress_history_summary(self, long_summary: str) -> str:
         """누적된 과거 줄거리가 너무 길어지면 이를 계층형(시즌 요약 + 최근 전개)으로 초압축합니다."""
@@ -316,8 +323,16 @@ class Generator:
 [프로젝트 설정]
 {source_text}"""
         print(">> 캐릭터 설정 생성 중...")
-        result = generate_text(prompt, system_instruction="너는 매력적인 캐릭터를 짜는 웹소설 기획자야. JSON 형식으로만 답해.")
-        
+        result = generate_text(
+            prompt,
+            system_instruction="너는 매력적인 캐릭터를 짜는 웹소설 기획자야. JSON 형식으로만 답해.",
+            temperature=0.2,
+        )
+
+        extracted = _extract_first_json_value(result, expected_type=list)
+        if extracted is not None:
+            return json.dumps(extracted, ensure_ascii=False, indent=2)
+
         cleaned = result.strip()
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
@@ -325,5 +340,5 @@ class Generator:
             cleaned = cleaned[3:]
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
-            
+
         return cleaned.strip()

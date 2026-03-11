@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from pydantic import BaseModel, ValidationError
 from typing import List
+from core.app_paths import DATA_PROJECTS_DIR
+from core.file_utils import atomic_write_json
 
-# 전역 DATA_DIR 대신 프로젝트 기준 경로 지침
-BASE_DATA_DIR = Path("data/projects")
+BASE_DATA_DIR = DATA_PROJECTS_DIR
 DEFAULT_CONFIG = {
     "worldview": "여기에 세계관(STORY_BIBLE)을 작성하세요.",
     "tone_and_manner": "여기에 문체(STYLE_GUIDE) 지침을 작성하세요.",
@@ -149,8 +150,7 @@ class ContextManager:
         
     def save_config(self, config_data: dict):
         normalized_config = self._normalize_config(config_data)
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(normalized_config, f, ensure_ascii=False, indent=4)
+        atomic_write_json(self.config_path, normalized_config)
             
     def save_characters(self, chars_data: list):
         if not isinstance(chars_data, list):
@@ -161,8 +161,7 @@ class ContextManager:
         if len(normalized_chars) != len(chars_data):
             raise ValueError("등장인물 데이터 중 형식이 잘못된 항목이 있습니다. 각 항목은 id/name/role/description/traits를 모두 가져야 합니다.")
 
-        with open(self.chars_path, "w", encoding="utf-8") as f:
-            json.dump(normalized_chars, f, ensure_ascii=False, indent=4)
+        atomic_write_json(self.chars_path, normalized_chars)
             
     def update_summary(self, new_summary: str, generator_instance=None):
         config = self.get_config()

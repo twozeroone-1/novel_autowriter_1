@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.generator import Generator
+from core.model_catalog import get_model_pricing
 
 FIELD_BUDGETS = {
     "worldview": {
@@ -32,16 +33,6 @@ FIELD_BUDGETS = {
         "recommended_max_chars": 1200,
         "tip": "오래된 내용은 압축하고 최근 2~4화 중심으로 유지하는 편이 좋습니다.",
     },
-}
-
-MODEL_PRICING_USD_PER_MILLION = {
-    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
-    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
-    "gemini-2.5-flash": {"input": 0.30, "output": 2.50},
-    "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
-    "gemini-3-pro-preview": {"input": 2.00, "output": 12.00},
-    "gemini-3-flash-preview": {"input": 0.50, "output": 3.00},
-    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
 }
 
 DEFAULT_OUTPUT_TOKEN_RATIO = 0.62
@@ -146,10 +137,6 @@ def find_latest_sample_chapter(chapters_dir: Path) -> Optional[Path]:
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-def get_model_pricing(model_name: str) -> Optional[dict]:
-    return MODEL_PRICING_USD_PER_MILLION.get(model_name)
 
 
 def estimate_generation_cost_report(

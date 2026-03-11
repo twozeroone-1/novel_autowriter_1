@@ -11,11 +11,15 @@ class Reviewer:
         
         world_ctx = self.ctx.get_worldview_context()
         char_ctx = self.ctx.get_character_context()
+        continuity_ctx = self.ctx.get_continuity_context()
+        state_ctx = self.ctx.get_state_context()
         
         prompt = f"""당신은 탑티어 웹소설 편집자(PD)이자 교정교열 전문가입니다.
-다음은 작가가 방금 넘긴 소설 원고 초안과 이 소설의 기본 세계관/캐릭터 설정입니다.
+다음은 작가가 방금 넘긴 소설 원고 초안과 이 소설의 핵심 설정입니다.
 
 {world_ctx}
+{continuity_ctx}
+{state_ctx}
 
 {char_ctx}
 
@@ -39,10 +43,14 @@ class Reviewer:
         
         world_ctx = self.ctx.get_worldview_context()
         char_ctx = self.ctx.get_character_context()
+        continuity_ctx = self.ctx.get_continuity_context()
+        state_ctx = self.ctx.get_state_context()
         
         prompt = f"""당신은 탑티어 웹소설 작가입니다. 편집자의 검수 리포트를 반영하여 원고 초안을 훌륭하게 수정해 주세요.
 
 {world_ctx}
+{continuity_ctx}
+{state_ctx}
 
 {char_ctx}
 

@@ -2,7 +2,7 @@ import unittest
 
 from core.token_budget import get_field_stats
 from ui.app import normalize_project_name
-from ui.chapters import build_workflow_steps
+from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps
 from ui.workspace import ProjectFieldSpec, build_project_field_panels, summarize_text_preview
 
 
@@ -11,8 +11,8 @@ class TestUiHelpers(unittest.TestCase):
         self.specs = (
             ProjectFieldSpec(
                 section_title="1. STORY BIBLE",
-                subtitle="세계관과 연재 목표",
-                guide_text="700~1500자",
+                subtitle="World and serialization goal",
+                guide_text="700-1500 chars",
                 input_label="",
                 config_key="worldview",
                 textarea_key="ta_worldview",
@@ -21,8 +21,8 @@ class TestUiHelpers(unittest.TestCase):
             ),
             ProjectFieldSpec(
                 section_title="2. STYLE GUIDE",
-                subtitle="문체와 서술 규칙",
-                guide_text="200~600자",
+                subtitle="Voice and prose rules",
+                guide_text="200-600 chars",
                 input_label="",
                 config_key="tone_and_manner",
                 textarea_key="ta_tone",
@@ -31,8 +31,8 @@ class TestUiHelpers(unittest.TestCase):
             ),
             ProjectFieldSpec(
                 section_title="3. CONTINUITY",
-                subtitle="고정 설정과 관계도",
-                guide_text="300~900자",
+                subtitle="Fixed canon and relationships",
+                guide_text="300-900 chars",
                 input_label="",
                 config_key="continuity",
                 textarea_key="ta_continuity",
@@ -41,8 +41,8 @@ class TestUiHelpers(unittest.TestCase):
             ),
             ProjectFieldSpec(
                 section_title="4. STATE",
-                subtitle="현재 상황과 감정선",
-                guide_text="150~500자",
+                subtitle="Current status and emotions",
+                guide_text="150-500 chars",
                 input_label="",
                 config_key="state",
                 textarea_key="ta_state",
@@ -78,9 +78,9 @@ class TestUiHelpers(unittest.TestCase):
     def test_build_project_field_panels_marks_first_attention_panel_expanded(self):
         config = {
             "worldview": "",
-            "tone_and_manner": "1인칭 현재 시제, 짧은 문장 위주.",
-            "continuity": "절대 변하지 않는 설정",
-            "state": "주인공은 방금 패배했다.",
+            "tone_and_manner": "Third-person limited, concise sentences.",
+            "continuity": "The school chair never meets the hero directly.",
+            "state": "The hero just lost the first duel.",
         }
 
         panels = build_project_field_panels(self.specs, get_field_stats(config), config)
@@ -94,13 +94,13 @@ class TestUiHelpers(unittest.TestCase):
     def test_build_project_field_panels_truncates_preview_and_keeps_healthy_panels_collapsed(self):
         config = {
             "worldview": (
-                "주인공은 기억을 잃은 채 마도 학교에 입학한다. "
-                "학교는 탑의 심장과 연결되어 있고, 각 기숙사는 서로 다른 금기를 지닌다. "
-                "연재의 목표는 학교 내부 권력 구조와 주인공의 잃어버린 과거를 함께 드러내는 것이다."
+                "The protagonist enters school with lost memories. "
+                "The school is tied to a hidden organization, and each discipline uses a different device. "
+                "The story goal is to reveal the power structure of the school and the hero's missing past."
             ),
-            "tone_and_manner": "1인칭 현재 시제, 짧은 문장, 농담은 절제.",
-            "continuity": "탑의 심장은 외부인이 직접 만질 수 없다.",
-            "state": "주인공은 첫 결투에서 패배한 직후다.",
+            "tone_and_manner": "Third-person limited, concise prose, balanced dialogue.",
+            "continuity": "The chair and the hero cannot meet directly.",
+            "state": "The protagonist won the first field test.",
         }
 
         panels = build_project_field_panels(self.specs, get_field_stats(config), config)
@@ -110,15 +110,35 @@ class TestUiHelpers(unittest.TestCase):
         self.assertFalse(any(panel.expanded for panel in panels))
 
     def test_summarize_text_preview_strips_simple_markdown(self):
-        preview = summarize_text_preview("# 제목\n**강조** 문장과 `코드`", max_chars=50)
+        preview = summarize_text_preview("# Title\n**Bold** text with `code`", max_chars=50)
 
-        self.assertEqual(preview, "제목 강조 문장과 코드")
+        self.assertEqual(preview, "Title Bold text with code")
 
     def test_build_workflow_steps_marks_done_current_and_upcoming(self):
-        steps = build_workflow_steps(("검수 대상 선택", "검수 리포트 생성", "수정본 저장"), current_step=1)
+        steps = build_workflow_steps(
+            ("Select draft", "Generate report", "Save revised draft"),
+            current_step=1,
+        )
 
         self.assertEqual([step.state for step in steps], ["완료", "현재 단계", "다음 단계"])
-        self.assertEqual([step.label for step in steps], ["검수 대상 선택", "검수 리포트 생성", "수정본 저장"])
+        self.assertEqual(
+            [step.label for step in steps],
+            ["Select draft", "Generate report", "Save revised draft"],
+        )
+
+    def test_build_session_bound_text_area_kwargs_uses_value_when_widget_state_missing(self):
+        kwargs = build_session_bound_text_area_kwargs("edited_draft", "new draft", {})
+
+        self.assertEqual(kwargs, {"key": "edited_draft", "value": "new draft"})
+
+    def test_build_session_bound_text_area_kwargs_omits_value_when_widget_state_exists(self):
+        kwargs = build_session_bound_text_area_kwargs(
+            "edited_draft",
+            "new draft",
+            {"edited_draft": "user edited draft"},
+        )
+
+        self.assertEqual(kwargs, {"key": "edited_draft"})
 
 
 if __name__ == "__main__":

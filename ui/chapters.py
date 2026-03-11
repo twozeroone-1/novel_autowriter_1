@@ -3,7 +3,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Mapping, TypeVar
 
 import streamlit as st
 
@@ -34,6 +34,17 @@ def build_workflow_steps(labels: tuple[str, ...], current_step: int) -> tuple[Wo
             state = "다음 단계"
         steps.append(WorkflowStep(label=label, state=state))
     return tuple(steps)
+
+
+def build_session_bound_text_area_kwargs(
+    widget_key: str,
+    initial_value: str,
+    session_state: Mapping[str, Any],
+) -> dict[str, str]:
+    kwargs: dict[str, str] = {"key": widget_key}
+    if widget_key not in session_state:
+        kwargs["value"] = initial_value
+    return kwargs
 
 
 def render_workflow_steps(labels: tuple[str, ...], current_step: int) -> None:
@@ -376,7 +387,15 @@ def render_generation_tab(app: Any) -> None:
 
     st.divider()
     st.subheader("생성된 초안")
-    st.text_area("수정 가능한 초안", value=st.session_state["current_draft"], height=400, key="edited_draft")
+    st.text_area(
+        "수정 가능한 초안",
+        height=400,
+        **build_session_bound_text_area_kwargs(
+            "edited_draft",
+            st.session_state["current_draft"],
+            st.session_state,
+        ),
+    )
 
     save_col, folder_col = st.columns([1, 2])
     with save_col:
@@ -497,9 +516,12 @@ def render_review_tab(app: Any) -> None:
     st.subheader("수정본")
     st.text_area(
         "수정 가능한 최종본",
-        value=st.session_state["revised_draft"],
         height=400,
-        key="edited_revised_draft",
+        **build_session_bound_text_area_kwargs(
+            "edited_revised_draft",
+            st.session_state["revised_draft"],
+            st.session_state,
+        ),
     )
 
     save_col, folder_col = st.columns([1, 2])

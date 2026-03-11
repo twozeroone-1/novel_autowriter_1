@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -43,6 +44,18 @@ class ProjectFieldSpec:
     textarea_key: str
     height: int
     actions: tuple[TextAssistAction, ...]
+
+
+@dataclass(frozen=True)
+class ProjectFieldPanel:
+    spec: ProjectFieldSpec
+    char_count: int
+    recommended_max_chars: int
+    status: str
+    tip: str
+    expander_label: str
+    preview_text: str
+    expanded: bool
 
 
 def render_section_header(title: str, subtitle: str, guide_text: str) -> None:
@@ -148,6 +161,61 @@ def build_project_field_specs(generator: Generator) -> tuple[ProjectFieldSpec, P
     )
 
 
+def summarize_text_preview(text: str, *, max_chars: int = 90, empty_fallback: str = "아직 작성되지 않았습니다.") -> str:
+    normalized = " ".join(line.strip() for line in str(text).splitlines() if line.strip())
+    normalized = re.sub(r"[#*_`]+", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return empty_fallback
+    if len(normalized) <= max_chars:
+        return normalized
+    return f"{normalized[:max_chars].rstrip()}..."
+
+
+def build_project_field_panels(
+    specs: tuple[ProjectFieldSpec, ...],
+    field_stats: list[dict],
+    config: dict,
+) -> tuple[ProjectFieldPanel, ...]:
+    stats_by_key = {row["key"]: row for row in field_stats}
+    pending_panels: list[dict[str, Any]] = []
+    first_attention_index: int | None = None
+
+    for index, spec in enumerate(specs):
+        row = stats_by_key[spec.config_key]
+        preview_text = summarize_text_preview(config.get(spec.config_key, ""))
+
+        needs_attention = row["status"] != "적정"
+        if needs_attention and first_attention_index is None:
+            first_attention_index = index
+
+        pending_panels.append(
+            {
+                "spec": spec,
+                "char_count": row["chars"],
+                "recommended_max_chars": row["recommended_max_chars"],
+                "status": row["status"],
+                "tip": row["tip"],
+                "expander_label": f"{spec.section_title} · {row['chars']:,}자 · {row['status']}",
+                "preview_text": preview_text,
+            }
+        )
+
+    return tuple(
+        ProjectFieldPanel(
+            spec=item["spec"],
+            char_count=item["char_count"],
+            recommended_max_chars=item["recommended_max_chars"],
+            status=item["status"],
+            tip=item["tip"],
+            expander_label=item["expander_label"],
+            preview_text=item["preview_text"],
+            expanded=first_attention_index == index if first_attention_index is not None else False,
+        )
+        for index, item in enumerate(pending_panels)
+    )
+
+
 def maybe_apply_text_assist(
     generator: Generator,
     config: dict,
@@ -185,35 +253,41 @@ def maybe_apply_text_assist(
 def render_project_text_field(
     generator: Generator,
     config: dict,
-    spec: ProjectFieldSpec,
+    panel: ProjectFieldPanel,
     *,
     ensure_api_key: Callable[[], bool],
     run_with_status: Callable[..., Any],
 ) -> str:
-    render_section_header(spec.section_title, spec.subtitle, spec.guide_text)
-    field_text = st.text_area(
-        spec.input_label,
-        value=config.get(spec.config_key, ""),
-        height=spec.height,
-        key=spec.textarea_key,
-    )
+    spec = panel.spec
+    with st.expander(panel.expander_label, expanded=panel.expanded):
+        st.caption(f"{spec.subtitle} · 권장 {panel.recommended_max_chars:,}자")
+        st.caption(f"현재 요약: {panel.preview_text}")
+        if panel.status != "적정":
+            st.info(panel.tip)
 
-    if spec.actions:
-        button_cols = st.columns(len(spec.actions))
-        for col, action in zip(button_cols, spec.actions):
-            with col:
-                maybe_apply_text_assist(
-                    generator,
-                    config,
-                    source_text=field_text,
-                    config_key=spec.config_key,
-                    textarea_key=spec.textarea_key,
-                    action=action,
-                    ensure_api_key=ensure_api_key,
-                    run_with_status=run_with_status,
-                )
+        field_text = st.text_area(
+            spec.input_label,
+            value=config.get(spec.config_key, ""),
+            height=spec.height,
+            key=spec.textarea_key,
+        )
 
-    return field_text
+        if spec.actions:
+            button_cols = st.columns(len(spec.actions))
+            for col, action in zip(button_cols, spec.actions):
+                with col:
+                    maybe_apply_text_assist(
+                        generator,
+                        config,
+                        source_text=field_text,
+                        config_key=spec.config_key,
+                        textarea_key=spec.textarea_key,
+                        action=action,
+                        ensure_api_key=ensure_api_key,
+                        run_with_status=run_with_status,
+                    )
+
+        return field_text
 
 
 def render_character_management_panel(generator: Generator, config: dict) -> None:
@@ -494,37 +568,31 @@ def render_project_settings_tab(
         for recommendation in budget_recommendations:
             st.write(f"- {recommendation}")
 
-    worldview_spec, tone_spec, continuity_spec, state_spec = build_project_field_specs(generator)
-    left_col, right_col = st.columns(2)
+    specs = build_project_field_specs(generator)
+    panels = build_project_field_panels(specs, field_stats, config)
+    filled_count = sum(1 for panel in panels if panel.char_count > 0)
+    attention_count = sum(1 for panel in panels if panel.status != "적정")
+    total_config_chars = sum(panel.char_count for panel in panels)
 
-    with left_col:
-        worldview_text = render_project_text_field(
-            generator,
-            config,
-            worldview_spec,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
-        tone_text = render_project_text_field(
-            generator,
-            config,
-            tone_spec,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
+    overview_col, attention_col, total_col = st.columns(3)
+    with overview_col:
+        st.metric("작성 완료", f"{filled_count}/4")
+    with attention_col:
+        st.metric("확인 필요", f"{attention_count}개")
+    with total_col:
+        st.metric("핵심 설정 글자 수", f"{total_config_chars:,}자")
 
-    with right_col:
-        continuity_text = render_project_text_field(
+    if attention_count:
+        st.caption("비어 있거나 길이 조정이 필요한 문서는 자동으로 먼저 펼쳐집니다.")
+    else:
+        st.caption("모든 핵심 문서가 권장 길이 안에 있습니다. 필요한 문서만 펼쳐서 수정하면 됩니다.")
+
+    field_values: dict[str, str] = {}
+    for panel in panels:
+        field_values[panel.spec.config_key] = render_project_text_field(
             generator,
             config,
-            continuity_spec,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
-        state_text = render_project_text_field(
-            generator,
-            config,
-            state_spec,
+            panel,
             ensure_api_key=ensure_api_key,
             run_with_status=run_with_status,
         )
@@ -533,27 +601,32 @@ def render_project_settings_tab(
     save_col, info_col = st.columns([1, 4])
     with save_col:
         if st.button("4개 문서 저장", type="primary", use_container_width=True):
-            config["worldview"] = worldview_text
-            config["tone_and_manner"] = tone_text
-            config["continuity"] = continuity_text
-            config["state"] = state_text
+            config["worldview"] = field_values["worldview"]
+            config["tone_and_manner"] = field_values["tone_and_manner"]
+            config["continuity"] = field_values["continuity"]
+            config["state"] = field_values["state"]
             generator.ctx.save_config(config)
             st.success("프로젝트 설정을 저장했습니다.")
     with info_col:
         st.info("필요한 문서만 저장해도 되지만, 네 문서를 같이 정리하면 생성 품질이 더 안정적입니다.")
 
     st.divider()
-    render_section_header("PREVIOUS SUMMARY", "이전 줄거리 요약", "400~1200자")
-    st.markdown("회차를 저장할 때 자동으로 갱신되지만, 필요하면 여기서 직접 수정할 수 있습니다.")
-    summary_text = st.text_area(
-        "이전 줄거리",
-        value=config.get("summary_of_previous", ""),
-        height=150,
-    )
-    if st.button("이전 줄거리 저장", key="save_sum"):
-        config["summary_of_previous"] = summary_text
-        generator.ctx.save_config(config)
-        st.success("이전 줄거리를 저장했습니다.")
+    summary_value = config.get("summary_of_previous", "")
+    summary_chars = len(str(summary_value))
+    summary_preview = summarize_text_preview(summary_value, max_chars=120, empty_fallback="아직 요약이 없습니다.")
+    with st.expander(f"PREVIOUS SUMMARY · {summary_chars:,}자", expanded=summary_chars == 0):
+        st.caption("이전 줄거리 요약 · 권장 400~1200자")
+        st.caption(f"현재 요약: {summary_preview}")
+        st.markdown("회차를 저장할 때 자동으로 갱신되지만, 필요하면 여기서 직접 수정할 수 있습니다.")
+        summary_text = st.text_area(
+            "이전 줄거리",
+            value=summary_value,
+            height=150,
+        )
+        if st.button("이전 줄거리 저장", key="save_sum"):
+            config["summary_of_previous"] = summary_text
+            generator.ctx.save_config(config)
+            st.success("이전 줄거리를 저장했습니다.")
 
     st.divider()
     render_character_management_panel(generator, config)

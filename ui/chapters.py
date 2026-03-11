@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
@@ -13,6 +14,34 @@ from core.token_budget import (
     get_budget_recommendations,
     get_field_stats,
 )
+
+
+@dataclass(frozen=True)
+class WorkflowStep:
+    label: str
+    state: str
+
+
+def build_workflow_steps(labels: tuple[str, ...], current_step: int) -> tuple[WorkflowStep, ...]:
+    steps: list[WorkflowStep] = []
+    for index, label in enumerate(labels):
+        if index < current_step:
+            state = "완료"
+        elif index == current_step:
+            state = "현재 단계"
+        else:
+            state = "다음 단계"
+        steps.append(WorkflowStep(label=label, state=state))
+    return tuple(steps)
+
+
+def render_workflow_steps(labels: tuple[str, ...], current_step: int) -> None:
+    steps = build_workflow_steps(labels, current_step)
+    cols = st.columns(len(steps))
+    for index, (col, step) in enumerate(zip(cols, steps), start=1):
+        with col:
+            st.caption(step.state)
+            st.markdown(f"**{index}. {step.label}**")
 
 
 def ensure_api_key() -> bool:
@@ -356,6 +385,12 @@ def render_review_tab(app: Any) -> None:
 
     st.header("원고 검수")
     st.markdown("세계관 충돌, 문맥 문제, 문장 완성도 기준으로 원고를 검토하고 수정본까지 만들 수 있습니다.")
+    review_step = 0
+    if "revised_draft" in st.session_state:
+        review_step = 2
+    elif "review_report" in st.session_state:
+        review_step = 1
+    render_workflow_steps(("검수 대상 선택", "검수 리포트 생성", "수정본 저장"), review_step)
 
     saved_files: list[str] = []
     if generator.chapters_dir.exists():
@@ -475,6 +510,8 @@ def render_auto_mode_tab(app: Any) -> None:
 
     st.header("반자동 연재 모드")
     st.markdown("한 번의 실행으로 초안 생성, 검수, 수정, 저장, 이전 줄거리 요약 갱신까지 처리합니다.")
+    auto_step = {"READY": 0, "RUNNING": 1, "REVIEW": 2}.get(st.session_state.get("auto_state", "READY"), 0)
+    render_workflow_steps(("지시사항 입력", "파이프라인 실행", "상태 저장"), auto_step)
 
     if "auto_state" not in st.session_state:
         st.session_state["auto_state"] = "READY"

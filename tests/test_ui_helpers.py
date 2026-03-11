@@ -2,6 +2,7 @@ import unittest
 
 from core.token_budget import get_field_stats
 from ui.app import normalize_project_name
+from ui.chapters import build_workflow_steps
 from ui.workspace import ProjectFieldSpec, build_project_field_panels, summarize_text_preview
 
 
@@ -112,6 +113,12 @@ class TestUiHelpers(unittest.TestCase):
         preview = summarize_text_preview("# 제목\n**강조** 문장과 `코드`", max_chars=50)
 
         self.assertEqual(preview, "제목 강조 문장과 코드")
+
+    def test_build_workflow_steps_marks_done_current_and_upcoming(self):
+        steps = build_workflow_steps(("검수 대상 선택", "검수 리포트 생성", "수정본 저장"), current_step=1)
+
+        self.assertEqual([step.state for step in steps], ["완료", "현재 단계", "다음 단계"])
+        self.assertEqual([step.label for step in steps], ["검수 대상 선택", "검수 리포트 생성", "수정본 저장"])
 
 
 if __name__ == "__main__":

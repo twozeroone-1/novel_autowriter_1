@@ -49,6 +49,13 @@ class TestAutomationUi(unittest.TestCase):
 
         self.assertEqual(status, "일시중지: boom")
 
+    def test_format_runtime_detail_value_uses_dash_for_empty_or_none(self):
+        module = self._load_module()
+
+        self.assertEqual(module.format_runtime_detail_value(None), "-")
+        self.assertEqual(module.format_runtime_detail_value(""), "-")
+        self.assertEqual(module.format_runtime_detail_value("job_1"), "job_1")
+
     def test_build_queue_rows_adds_order_and_defaults(self):
         module = self._load_module()
         rows = module.build_queue_rows(
@@ -88,6 +95,21 @@ class TestAutomationUi(unittest.TestCase):
         self.assertFalse(editor_state["show_time"])
         self.assertFalse(editor_state["show_days"])
         self.assertTrue(editor_state["show_hours"])
+
+    def test_build_history_summary_counts_total_success_and_failure(self):
+        module = self._load_module()
+
+        summary = module.build_history_summary(
+            [
+                {"success": True},
+                {"success": False},
+                {"success": True},
+            ]
+        )
+
+        self.assertEqual(summary["total"], 3)
+        self.assertEqual(summary["success"], 2)
+        self.assertEqual(summary["failure"], 1)
 
 
 if __name__ == "__main__":

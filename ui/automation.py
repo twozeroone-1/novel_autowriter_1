@@ -52,9 +52,16 @@ def format_runtime_status(runtime: dict) -> str:
     if status == "running":
         return "실행 중"
     if status == "paused":
-        error = runtime.get("last_error", "").strip()
+        error = str(runtime.get("last_error", "")).strip()
         return f"일시중지: {error}" if error else "일시중지"
     return "대기 중"
+
+
+def format_runtime_detail_value(value) -> str:
+    if value is None:
+        return "-"
+    text = str(value).strip()
+    return text or "-"
 
 
 def build_queue_rows(queue: list[dict]) -> list[dict]:
@@ -85,6 +92,16 @@ def build_history_rows(history: list[dict]) -> list[dict]:
             }
         )
     return rows
+
+
+def build_history_summary(history: list[dict]) -> dict[str, int]:
+    total = len(history)
+    success = sum(1 for record in history if record.get("success"))
+    return {
+        "total": total,
+        "success": success,
+        "failure": total - success,
+    }
 
 
 class AutomationBackgroundService:
@@ -145,7 +162,9 @@ def render_automation_tab(app) -> None:
     selected_type = st.selectbox(
         "스케줄 방식",
         options=["daily", "weekly", "interval"],
-        index=["daily", "weekly", "interval"].index(schedule_type if schedule_type in {"daily", "weekly", "interval"} else "daily"),
+        index=["daily", "weekly", "interval"].index(
+            schedule_type if schedule_type in {"daily", "weekly", "interval"} else "daily"
+        ),
         format_func=lambda value: {
             "daily": "매일 특정 시각",
             "weekly": "요일별 특정 시각",
@@ -254,8 +273,8 @@ def render_automation_tab(app) -> None:
                 st.rerun()
         with action_col4:
             if st.button("큐에서 제거", use_container_width=True):
-                queue = [job for job in queue if job.get("id") != selected_job_id]
-                store.save_queue(queue)
+                updated_queue = [job for job in queue if job.get("id") != selected_job_id]
+                store.save_queue(updated_queue)
                 st.rerun()
     else:
         st.info("아직 등록된 자동화 작업이 없습니다.")
@@ -265,10 +284,10 @@ def render_automation_tab(app) -> None:
     status_col1, status_col2 = st.columns(2)
     with status_col1:
         st.write(f"현재 상태: `{runtime.get('status', 'idle')}`")
-        st.write(f"마지막 실행: `{runtime.get('last_run_at', '-')}`")
+        st.write(f"마지막 실행: `{format_runtime_detail_value(runtime.get('last_run_at'))}`")
     with status_col2:
-        st.write(f"현재 작업: `{runtime.get('current_job_id', '-')}`")
-        st.write(f"마지막 오류: `{runtime.get('last_error', '-')}`")
+        st.write(f"현재 작업: `{format_runtime_detail_value(runtime.get('current_job_id'))}`")
+        st.write(f"마지막 오류: `{format_runtime_detail_value(runtime.get('last_error'))}`")
 
     runtime_action_col1, runtime_action_col2 = st.columns(2)
     with runtime_action_col1:
@@ -295,6 +314,15 @@ def render_automation_tab(app) -> None:
 
     st.divider()
     st.subheader("4. 최근 실행 이력")
+    history_summary = build_history_summary(history)
+    history_col1, history_col2, history_col3 = st.columns(3)
+    with history_col1:
+        st.metric("24시간 실행", str(history_summary["total"]))
+    with history_col2:
+        st.metric("성공", str(history_summary["success"]))
+    with history_col3:
+        st.metric("실패", str(history_summary["failure"]))
+
     history_rows = build_history_rows(history)
     if history_rows:
         st.dataframe(history_rows, use_container_width=True, hide_index=True)

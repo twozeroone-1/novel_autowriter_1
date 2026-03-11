@@ -11,6 +11,7 @@ from core.file_utils import update_env_file
 from core.generator import Generator
 from core.planner import Planner
 from core.reviewer import Reviewer
+from ui.automation import AutomationBackgroundService, render_automation_tab
 from ui.chapters import (
     ensure_api_key,
     render_auto_mode_tab,
@@ -66,6 +67,15 @@ PROJECT_STATE_KEYS = [
     "plot_phase3",
     "plot_result",
     "plot_result_view",
+    "automation_enabled",
+    "automation_schedule_type",
+    "automation_schedule_time",
+    "automation_schedule_days",
+    "automation_interval_hours",
+    "automation_job_title",
+    "automation_job_instruction",
+    "automation_job_target_length",
+    "automation_selected_job_id",
     "delete_project_confirm",
 ]
 HIDDEN_PROJECT_NAMES = {"default_project", "sample"}
@@ -126,6 +136,13 @@ def clear_cached_resources() -> None:
     get_cached_reviewer.clear()
 
 
+@st.cache_resource(show_spinner=False)
+def get_automation_background_service() -> AutomationBackgroundService:
+    service = AutomationBackgroundService()
+    service.start()
+    return service
+
+
 @dataclass(frozen=True)
 class AppServices:
     generator: Generator
@@ -159,6 +176,8 @@ def build_app_services(project_name: str) -> AppServices:
 
 
 def main() -> None:
+    get_automation_background_service()
+
     current_project = render_sidebar_panel(
         normalize_project_name=normalize_project_name,
         get_project_list=get_project_list,
@@ -174,7 +193,7 @@ def main() -> None:
     st.title(f"AI 소설 스튜디오 - [{current_project}]")
     st.markdown("현재 선택한 작품 환경에서 설정 관리, 회차 생성, 검수, 아이디어와 플롯 설계를 진행합니다.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         [
             "[1] 프로젝트 통합 설정",
             "[2] 회차 생성",
@@ -182,6 +201,7 @@ def main() -> None:
             "[4] 반자동 연재 모드",
             "[5] 아이디어/제목",
             "[6] 대형 플롯",
+            "[7] 자동화 연재 모드",
         ]
     )
 
@@ -214,6 +234,9 @@ def main() -> None:
             ensure_api_key=ensure_api_key,
             run_with_status=run_with_status,
         )
+
+    with tab7:
+        render_automation_tab(app)
 
 
 if __name__ == "__main__":

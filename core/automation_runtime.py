@@ -2,6 +2,7 @@ from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
+from core.app_paths import DATA_PROJECTS_DIR
 from core.automation_scheduler import is_schedule_due
 from core.automation_store import AutomationStore
 
@@ -36,9 +37,11 @@ class AutomationRuntime:
         if job is None:
             return
 
+        job["status"] = "running"
         runtime["status"] = "running"
         runtime["current_job_id"] = job.get("id")
         runtime["last_error"] = ""
+        self.store.save_queue(queue)
         self.store.save_runtime(runtime)
 
         max_attempts = int(config.get("retry_policy", {}).get("max_attempts", 2))
@@ -91,3 +94,21 @@ class AutomationRuntime:
         runtime = deepcopy(DEFAULT_RUNTIME_STATE)
         runtime.update(self.store.load_runtime())
         return runtime
+
+
+def run_automation_pass(
+    *,
+    now: datetime,
+    automator_factory,
+) -> None:
+    if not DATA_PROJECTS_DIR.exists():
+        return
+
+    for path in DATA_PROJECTS_DIR.iterdir():
+        if not path.is_dir():
+            continue
+        store = AutomationStore(project_name=path.name)
+        if not store.load_config().get("enabled", False):
+            continue
+        runtime = AutomationRuntime(store=store, automator=automator_factory(path.name))
+        runtime.tick(now=now)

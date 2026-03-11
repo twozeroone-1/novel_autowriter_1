@@ -17,11 +17,13 @@ from core.api_key_store import (
     set_runtime_api_key,
 )
 from core.app_paths import DATA_PROJECTS_DIR
+from core.automation_store import AutomationStore
 from core.generator import Generator
 from core.llm import LLMError
 from core.llm_backend import GeminiCliStatus, probe_gemini_cli, resolve_backend_mode, test_gemini_cli_connection
 from core.model_catalog import get_available_models
 from core.token_budget import get_budget_recommendations, get_field_stats
+from ui.automation import format_runtime_status, format_schedule_summary
 from ui.diagnostics import format_sidebar_summary, get_sidebar_summary, render_diagnostics_panel
 
 
@@ -464,7 +466,11 @@ def render_sidebar(
 
         st.divider()
         diagnostics_summary = get_sidebar_summary(st.session_state["current_project"])
+        automation_store = AutomationStore(project_name=st.session_state["current_project"])
+        automation_config = automation_store.load_config()
+        automation_runtime = automation_store.load_runtime()
         st.caption(f"LLM Diagnostics: {format_sidebar_summary(diagnostics_summary)}")
+        st.caption(f"자동화: {format_schedule_summary(automation_config)} / {format_runtime_status(automation_runtime)}")
         if secure_api_key_exists:
             st.caption("API 상태: 보안 저장소 사용 중")
         elif runtime_api_key:

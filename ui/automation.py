@@ -1,0 +1,333 @@
+import threading
+from datetime import datetime, time as dt_time
+from uuid import uuid4
+
+import streamlit as st
+
+from core.automator import Automator
+from core.automation_runtime import AutomationRuntime, run_automation_pass
+from core.automation_store import AutomationStore
+
+
+WEEKDAY_LABELS = {
+    "mon": "월",
+    "tue": "화",
+    "wed": "수",
+    "thu": "목",
+    "fri": "금",
+    "sat": "토",
+    "sun": "일",
+}
+
+WEEKDAY_OPTIONS = tuple(WEEKDAY_LABELS.keys())
+
+
+def build_schedule_editor_state(schedule_type: str) -> dict[str, bool]:
+    return {
+        "show_time": schedule_type in {"daily", "weekly"},
+        "show_days": schedule_type == "weekly",
+        "show_hours": schedule_type == "interval",
+    }
+
+
+def format_schedule_summary(config: dict) -> str:
+    if not config.get("enabled", False):
+        return "비활성"
+
+    schedule = config.get("schedule", {})
+    schedule_type = schedule.get("type", "daily")
+    if schedule_type == "daily":
+        return f"매일 {schedule.get('time', '21:00')}"
+    if schedule_type == "weekly":
+        days = schedule.get("days", [])
+        labels = [WEEKDAY_LABELS.get(day, str(day)) for day in days]
+        return f"매주 {', '.join(labels)} {schedule.get('time', '21:00')}".strip()
+    if schedule_type == "interval":
+        return f"{int(schedule.get('hours', 24))}시간마다 반복"
+    return "설정 없음"
+
+
+def format_runtime_status(runtime: dict) -> str:
+    status = runtime.get("status", "idle")
+    if status == "running":
+        return "실행 중"
+    if status == "paused":
+        error = runtime.get("last_error", "").strip()
+        return f"일시중지: {error}" if error else "일시중지"
+    return "대기 중"
+
+
+def build_queue_rows(queue: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for index, job in enumerate(queue, start=1):
+        rows.append(
+            {
+                "순서": index,
+                "제목": job.get("title", ""),
+                "상태": job.get("status", "pending"),
+                "시도": int(job.get("attempt_count", 0)),
+                "분량": int(job.get("target_length", 5000)),
+            }
+        )
+    return rows
+
+
+def build_history_rows(history: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for record in history:
+        rows.append(
+            {
+                "시각": record.get("timestamp", ""),
+                "제목": record.get("title", ""),
+                "결과": "성공" if record.get("success") else "실패",
+                "백엔드": record.get("backend", record.get("actual_backend", "")),
+                "오류": record.get("error_text", ""),
+            }
+        )
+    return rows
+
+
+class AutomationBackgroundService:
+    def __init__(self, poll_seconds: int = 30):
+        self.poll_seconds = poll_seconds
+        self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(
+            target=self._run_loop,
+            name="automation-background-service",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                run_automation_pass(
+                    now=datetime.now().astimezone(),
+                    automator_factory=lambda project_name: Automator(project_name=project_name),
+                )
+            except Exception:
+                pass
+            self._stop_event.wait(self.poll_seconds)
+
+
+def render_automation_tab(app) -> None:
+    store = AutomationStore(project_name=app.generator.ctx.project_name)
+    config = store.load_config()
+    queue = store.load_queue()
+    runtime = store.load_runtime()
+    history = store.load_recent_history(limit=10)
+
+    st.header("[7] 자동화 연재 모드")
+    st.caption("브라우저 탭을 닫아도 `streamlit run` 프로세스가 살아 있으면 예약 실행이 계속됩니다.")
+
+    summary_col1, summary_col2, summary_col3 = st.columns(3)
+    with summary_col1:
+        st.metric("스케줄", format_schedule_summary(config))
+    with summary_col2:
+        st.metric("런타임", format_runtime_status(runtime))
+    with summary_col3:
+        st.metric("대기 작업", str(sum(1 for job in queue if job.get("status") == "pending")))
+
+    st.divider()
+    st.subheader("1. 스케줄 설정")
+    schedule = config.get("schedule", {})
+    schedule_type = schedule.get("type", "daily")
+    default_time = _parse_time_value(schedule.get("time", "21:00"))
+    default_days = [day for day in schedule.get("days", []) if day in WEEKDAY_OPTIONS]
+    default_hours = int(schedule.get("hours", 24))
+
+    enabled = st.checkbox("자동화 활성화", value=config.get("enabled", False), key="automation_enabled")
+    selected_type = st.selectbox(
+        "스케줄 방식",
+        options=["daily", "weekly", "interval"],
+        index=["daily", "weekly", "interval"].index(schedule_type if schedule_type in {"daily", "weekly", "interval"} else "daily"),
+        format_func=lambda value: {
+            "daily": "매일 특정 시각",
+            "weekly": "요일별 특정 시각",
+            "interval": "N시간마다 반복",
+        }[value],
+        key="automation_schedule_type",
+    )
+    editor_state = build_schedule_editor_state(selected_type)
+    selected_time = default_time
+    selected_days: list[str] = default_days
+    interval_hours = default_hours
+    if editor_state["show_time"]:
+        selected_time = st.time_input("실행 시각", value=default_time, step=60, key="automation_schedule_time")
+    if editor_state["show_days"]:
+        selected_days = st.multiselect(
+            "실행 요일",
+            options=list(WEEKDAY_OPTIONS),
+            default=default_days,
+            format_func=lambda value: WEEKDAY_LABELS[value],
+            key="automation_schedule_days",
+        )
+    if editor_state["show_hours"]:
+        interval_hours = int(
+            st.number_input(
+                "반복 간격(시간)",
+                min_value=1,
+                max_value=168,
+                value=default_hours,
+                step=1,
+                key="automation_interval_hours",
+            )
+        )
+
+    if st.button("스케줄 저장", type="primary", use_container_width=True):
+        updated_schedule = {
+            "type": selected_type,
+            "time": selected_time.strftime("%H:%M"),
+            "days": selected_days,
+            "hours": interval_hours,
+        }
+        config["enabled"] = enabled
+        config["schedule"] = updated_schedule
+        store.save_config(config)
+        st.success("자동화 스케줄을 저장했습니다.")
+        st.rerun()
+
+    st.divider()
+    st.subheader("2. 작업 큐")
+    with st.form("automation_queue_add_form"):
+        job_title = st.text_input("회차 제목", value="", key="automation_job_title")
+        job_instruction = st.text_area("지시사항", value="", height=160, key="automation_job_instruction")
+        job_target_length = int(
+            st.number_input(
+                "목표 분량",
+                min_value=500,
+                max_value=20000,
+                value=5000,
+                step=500,
+                key="automation_job_target_length",
+            )
+        )
+        if st.form_submit_button("큐에 추가", type="primary", use_container_width=True):
+            if not job_title.strip() or not job_instruction.strip():
+                st.warning("회차 제목과 지시사항을 모두 입력해 주세요.")
+            else:
+                queue.append(
+                    {
+                        "id": f"job_{uuid4().hex[:10]}",
+                        "title": job_title.strip(),
+                        "instruction": job_instruction.strip(),
+                        "target_length": job_target_length,
+                        "status": "pending",
+                        "attempt_count": 0,
+                        "created_at": datetime.now().astimezone().isoformat(),
+                        "last_error": "",
+                    }
+                )
+                store.save_queue(queue)
+                st.success("작업을 큐에 추가했습니다.")
+                st.rerun()
+
+    queue_rows = build_queue_rows(queue)
+    if queue_rows:
+        st.dataframe(queue_rows, use_container_width=True, hide_index=True)
+        selected_job_id = st.selectbox(
+            "작업 선택",
+            options=[job.get("id", "") for job in queue],
+            format_func=lambda job_id: _format_job_option(queue, job_id),
+            key="automation_selected_job_id",
+        )
+        action_col1, action_col2, action_col3, action_col4 = st.columns(4)
+        with action_col1:
+            if st.button("위로 이동", use_container_width=True):
+                _move_job(queue, selected_job_id, direction=-1)
+                store.save_queue(queue)
+                st.rerun()
+        with action_col2:
+            if st.button("아래로 이동", use_container_width=True):
+                _move_job(queue, selected_job_id, direction=1)
+                store.save_queue(queue)
+                st.rerun()
+        with action_col3:
+            if st.button("재시도 가능 상태로 초기화", use_container_width=True):
+                _reset_job(queue, selected_job_id)
+                store.save_queue(queue)
+                st.rerun()
+        with action_col4:
+            if st.button("큐에서 제거", use_container_width=True):
+                queue = [job for job in queue if job.get("id") != selected_job_id]
+                store.save_queue(queue)
+                st.rerun()
+    else:
+        st.info("아직 등록된 자동화 작업이 없습니다.")
+
+    st.divider()
+    st.subheader("3. 런타임 상태")
+    status_col1, status_col2 = st.columns(2)
+    with status_col1:
+        st.write(f"현재 상태: `{runtime.get('status', 'idle')}`")
+        st.write(f"마지막 실행: `{runtime.get('last_run_at', '-')}`")
+    with status_col2:
+        st.write(f"현재 작업: `{runtime.get('current_job_id', '-')}`")
+        st.write(f"마지막 오류: `{runtime.get('last_error', '-')}`")
+
+    runtime_action_col1, runtime_action_col2 = st.columns(2)
+    with runtime_action_col1:
+        if st.button("지금 한 번 체크 실행", use_container_width=True):
+            runtime_runner = AutomationRuntime(
+                store=store,
+                automator=Automator(project_name=app.generator.ctx.project_name),
+            )
+            runtime_runner.tick(now=datetime.now().astimezone())
+            st.success("자동화 체크를 한 번 실행했습니다.")
+            st.rerun()
+    with runtime_action_col2:
+        if st.button("paused 해제", use_container_width=True):
+            store.save_runtime(
+                {
+                    "status": "idle",
+                    "current_job_id": None,
+                    "last_run_at": runtime.get("last_run_at"),
+                    "last_error": "",
+                }
+            )
+            st.success("자동화 상태를 다시 대기 중으로 돌렸습니다.")
+            st.rerun()
+
+    st.divider()
+    st.subheader("4. 최근 실행 이력")
+    history_rows = build_history_rows(history)
+    if history_rows:
+        st.dataframe(history_rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("최근 24시간 실행 이력이 없습니다.")
+
+
+def _parse_time_value(raw_time: str) -> dt_time:
+    hour_text, minute_text = raw_time.split(":", maxsplit=1)
+    return dt_time(hour=int(hour_text), minute=int(minute_text))
+
+
+def _format_job_option(queue: list[dict], job_id: str) -> str:
+    for index, job in enumerate(queue, start=1):
+        if job.get("id") == job_id:
+            return f"{index}. {job.get('title', '')} [{job.get('status', 'pending')}]"
+    return job_id
+
+
+def _move_job(queue: list[dict], job_id: str, *, direction: int) -> None:
+    index = next((i for i, job in enumerate(queue) if job.get("id") == job_id), None)
+    if index is None:
+        return
+    new_index = index + direction
+    if new_index < 0 or new_index >= len(queue):
+        return
+    queue[index], queue[new_index] = queue[new_index], queue[index]
+
+
+def _reset_job(queue: list[dict], job_id: str) -> None:
+    for job in queue:
+        if job.get("id") == job_id:
+            job["status"] = "pending"
+            job["attempt_count"] = 0
+            job["last_error"] = ""
+            return

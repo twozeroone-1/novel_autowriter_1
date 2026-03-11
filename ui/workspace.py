@@ -22,6 +22,7 @@ from core.llm import LLMError
 from core.llm_backend import GeminiCliStatus, probe_gemini_cli, resolve_backend_mode, test_gemini_cli_connection
 from core.model_catalog import get_available_models
 from core.token_budget import get_budget_recommendations, get_field_stats
+from ui.diagnostics import format_sidebar_summary, get_sidebar_summary, render_diagnostics_panel
 
 
 @dataclass(frozen=True)
@@ -462,6 +463,8 @@ def render_sidebar(
             st.session_state["gemini_cli_status"] = cli_status
 
         st.divider()
+        diagnostics_summary = get_sidebar_summary(st.session_state["current_project"])
+        st.caption(f"LLM Diagnostics: {format_sidebar_summary(diagnostics_summary)}")
         if secure_api_key_exists:
             st.caption("API 상태: 보안 저장소 사용 중")
         elif runtime_api_key:
@@ -694,3 +697,5 @@ def render_project_settings_tab(
 
     st.divider()
     render_character_management_panel(generator, config)
+    st.divider()
+    render_diagnostics_panel(generator.ctx.project_name)

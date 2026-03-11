@@ -1,16 +1,18 @@
 import unittest
+from unittest.mock import patch
 
 from ui import diagnostics as diagnostics_ui
 
 
 class TestDiagnosticsUi(unittest.TestCase):
-    def test_format_sidebar_summary_uses_compact_metadata_only(self):
+    def test_format_sidebar_summary_uses_korean_compact_metadata(self):
         summary = diagnostics_ui.format_sidebar_summary(
             {"run_count": 3, "failure_count": 1, "latest_backend": "cli"}
         )
 
-        self.assertIn("3 runs", summary)
-        self.assertIn("1 failed", summary)
+        self.assertIn("24시간", summary)
+        self.assertIn("3건", summary)
+        self.assertIn("실패 1건", summary)
         self.assertIn("cli", summary)
 
     def test_filter_runs_by_success_backend_and_model(self):
@@ -63,11 +65,28 @@ class TestDiagnosticsUi(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "failed")
         self.assertEqual(rows[0]["error_text"], "api failed")
 
-    def test_get_diagnostics_warning_text_mentions_sensitive_content(self):
+    def test_get_diagnostics_warning_text_is_korean(self):
         warning_text = diagnostics_ui.get_diagnostics_warning_text()
 
-        self.assertIn("sensitive", warning_text.lower())
-        self.assertIn("prompt", warning_text.lower())
+        self.assertIn("민감", warning_text)
+        self.assertIn("프롬프트", warning_text)
+
+    def test_render_detail_fields_uses_read_only_text_areas(self):
+        row = {
+            "prompt_text": "prompt",
+            "response_text": "response",
+            "stderr_text": "stderr",
+            "error_text": "error",
+            "fallback_note": "fallback",
+        }
+
+        with patch.object(diagnostics_ui.st, "text_area") as mocked_text_area:
+            diagnostics_ui.render_detail_fields(row, index=0)
+
+        self.assertEqual(mocked_text_area.call_count, 5)
+        labels = [call.args[0] for call in mocked_text_area.call_args_list]
+        self.assertEqual(labels, ["프롬프트", "응답", "stderr", "오류", "fallback 메모"])
+        self.assertTrue(all(call.kwargs["disabled"] for call in mocked_text_area.call_args_list))
 
 
 if __name__ == "__main__":

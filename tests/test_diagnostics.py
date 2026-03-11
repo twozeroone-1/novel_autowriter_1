@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -50,6 +51,33 @@ class TestDiagnosticsStorage(unittest.TestCase):
                 records = diagnostics.load_recent_llm_runs("sample_project", now=now)
 
         self.assertEqual(len(records), 1)
+
+    def test_load_recent_runs_prunes_old_lines_from_existing_jsonl_file(self):
+        now = datetime(2026, 3, 11, 0, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            projects_dir = Path(tmpdir) / "projects"
+            with patch.object(diagnostics, "DATA_PROJECTS_DIR", projects_dir):
+                log_dir = diagnostics.get_diagnostics_dir("sample_project")
+                log_dir.mkdir(parents=True, exist_ok=True)
+                log_path = log_dir / "2026-03-10.jsonl"
+                log_path.write_text(
+                    "\n".join(
+                        [
+                            json.dumps(build_record(timestamp=now - timedelta(hours=24, minutes=30)), ensure_ascii=False),
+                            json.dumps(build_record(timestamp=now - timedelta(minutes=45)), ensure_ascii=False),
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+                records = diagnostics.load_recent_llm_runs("sample_project", now=now)
+
+                remaining_lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(len(remaining_lines), 1)
+        self.assertIn((now - timedelta(minutes=45)).isoformat(), remaining_lines[0])
 
     def test_load_recent_runs_skips_malformed_jsonl_lines(self):
         now = datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc)

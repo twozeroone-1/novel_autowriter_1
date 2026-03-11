@@ -3,9 +3,16 @@ import streamlit as st
 from core.diagnostics import build_recent_summary, load_recent_llm_runs
 
 
+RESULT_FILTER_LABELS = {
+    "all": "전체",
+    "success": "성공",
+    "failed": "실패",
+}
+
+
 def format_sidebar_summary(summary: dict) -> str:
     latest_backend = summary.get("latest_backend") or "-"
-    return f"24h {summary.get('run_count', 0)} runs / {summary.get('failure_count', 0)} failed / last {latest_backend}"
+    return f"24시간 {summary.get('run_count', 0)}건 / 실패 {summary.get('failure_count', 0)}건 / 최근 {latest_backend}"
 
 
 def filter_runs(
@@ -45,36 +52,58 @@ def build_detail_rows(records: list[dict]) -> list[dict]:
 
 
 def get_diagnostics_warning_text() -> str:
-    return "This panel may contain sensitive prompt and response text. Open raw details only when needed."
+    return "이 화면에는 민감한 프롬프트와 응답 원문이 포함될 수 있습니다. 필요한 경우에만 상세 원문을 펼쳐서 확인해 주세요."
 
 
 def get_sidebar_summary(project_name: str) -> dict:
     return build_recent_summary(load_recent_llm_runs(project_name))
 
 
+def render_detail_fields(row: dict, *, index: int) -> None:
+    st.text_area("프롬프트", value=row.get("prompt_text", ""), height=160, key=f"diag_prompt_{index}", disabled=True)
+    st.text_area("응답", value=row.get("response_text", ""), height=160, key=f"diag_response_{index}", disabled=True)
+    st.text_area("stderr", value=row.get("stderr_text", ""), height=100, key=f"diag_stderr_{index}", disabled=True)
+    st.text_area("오류", value=row.get("error_text", ""), height=100, key=f"diag_error_{index}", disabled=True)
+    st.text_area(
+        "fallback 메모",
+        value=row.get("fallback_note", ""),
+        height=80,
+        key=f"diag_fallback_{index}",
+        disabled=True,
+    )
+
+
 def render_diagnostics_panel(project_name: str) -> None:
     records = load_recent_llm_runs(project_name)
     summary = build_recent_summary(records)
 
-    with st.expander("Advanced: diagnostics / run history", expanded=False):
+    with st.expander("고급: 진단 / 실행 기록", expanded=False):
         st.warning(get_diagnostics_warning_text())
         st.caption(format_sidebar_summary(summary))
 
-        success_filter = st.selectbox("Result", ["all", "success", "failed"], key="diag_success_filter")
+        success_filter = st.selectbox(
+            "결과",
+            ["all", "success", "failed"],
+            key="diag_success_filter",
+            format_func=lambda item: RESULT_FILTER_LABELS[item],
+        )
         requested_backend = st.selectbox(
-            "Requested backend",
+            "요청 백엔드",
             ["all"] + sorted({record.get("requested_backend") for record in records if record.get("requested_backend")}),
             key="diag_requested_backend",
+            format_func=lambda item: "전체" if item == "all" else item,
         )
         actual_backend = st.selectbox(
-            "Actual backend",
+            "실제 백엔드",
             ["all"] + sorted({record.get("actual_backend") for record in records if record.get("actual_backend")}),
             key="diag_actual_backend",
+            format_func=lambda item: "전체" if item == "all" else item,
         )
         model_name = st.selectbox(
-            "Model",
+            "모델",
             ["all"] + sorted({record.get("model") for record in records if record.get("model")}),
             key="diag_model_name",
+            format_func=lambda item: "전체" if item == "all" else item,
         )
 
         filtered_records = filter_runs(
@@ -86,7 +115,7 @@ def render_diagnostics_panel(project_name: str) -> None:
         )
 
         if not filtered_records:
-            st.caption("No diagnostics records in the last 24 hours.")
+            st.caption("최근 24시간 기록이 없습니다.")
             return
 
         for index, row in enumerate(build_detail_rows(filtered_records)):
@@ -99,13 +128,4 @@ def render_diagnostics_panel(project_name: str) -> None:
                 f" | {row.get('duration_ms', 0)} ms"
             )
             with st.expander(label, expanded=False):
-                st.text_area("Prompt", value=row.get("prompt_text", ""), height=160, key=f"diag_prompt_{index}")
-                st.text_area("Response", value=row.get("response_text", ""), height=160, key=f"diag_response_{index}")
-                st.text_area("stderr", value=row.get("stderr_text", ""), height=100, key=f"diag_stderr_{index}")
-                st.text_area("Error", value=row.get("error_text", ""), height=100, key=f"diag_error_{index}")
-                st.text_area(
-                    "Fallback note",
-                    value=row.get("fallback_note", ""),
-                    height=80,
-                    key=f"diag_fallback_{index}",
-                )
+                render_detail_fields(row, index=index)

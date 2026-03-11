@@ -86,6 +86,35 @@ def resolve_backend_mode(raw: str | None) -> str:
     return value if value in VALID_BACKEND_MODES else "auto"
 
 
+def get_backend_gate_error(
+    mode: str,
+    *,
+    has_api_key: bool,
+    cli_status: GeminiCliStatus | None = None,
+) -> str | None:
+    resolved_mode = resolve_backend_mode(mode)
+    cli_ready = bool(cli_status and cli_status.available and cli_status.authenticated is not False)
+    cli_needs_auth = bool(cli_status and cli_status.available and cli_status.authenticated is False)
+
+    if resolved_mode == "api":
+        if has_api_key:
+            return None
+        return "API 키가 설정되지 않았습니다. 사이드바에서 먼저 설정해 주세요."
+
+    if resolved_mode == "cli":
+        if cli_ready:
+            return None
+        if cli_needs_auth:
+            return "Gemini CLI OAuth 로그인이 필요합니다. 사이드바에서 CLI 연결 테스트로 상태를 확인해 주세요."
+        return "Gemini CLI를 사용할 수 없습니다. 설치 상태와 OAuth 로그인을 확인해 주세요."
+
+    if has_api_key or cli_ready:
+        return None
+    if cli_needs_auth:
+        return "API 키가 없고 Gemini CLI OAuth 로그인도 완료되지 않았습니다. 사이드바에서 둘 중 하나를 먼저 준비해 주세요."
+    return "API 키가 없고 Gemini CLI도 사용할 수 없습니다. 사이드바에서 API 키를 설정하거나 Gemini CLI를 준비해 주세요."
+
+
 def find_gemini_cli_executable(platform_name: str | None = None) -> str | None:
     current_platform = platform_name or sys.platform
     candidates = ["gemini.cmd", "gemini"] if current_platform.startswith("win") else ["gemini"]

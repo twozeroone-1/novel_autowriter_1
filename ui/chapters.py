@@ -9,6 +9,7 @@ import streamlit as st
 
 from core.generator import Generator
 from core.llm import LLMError
+from core.llm_backend import GeminiCliStatus, get_backend_gate_error, probe_gemini_cli, resolve_backend_mode
 from core.token_budget import (
     estimate_generation_cost_report,
     get_budget_recommendations,
@@ -45,9 +46,25 @@ def render_workflow_steps(labels: tuple[str, ...], current_step: int) -> None:
 
 
 def ensure_api_key() -> bool:
-    if os.getenv("GOOGLE_API_KEY", "").strip():
+    backend_mode = resolve_backend_mode(os.getenv("GEMINI_BACKEND", "auto"))
+    has_api_key = bool(os.getenv("GOOGLE_API_KEY", "").strip())
+    cli_status: GeminiCliStatus | None = None
+    if backend_mode in {"auto", "cli"}:
+        stored_status = st.session_state.get("gemini_cli_status")
+        if isinstance(stored_status, GeminiCliStatus):
+            cli_status = stored_status
+        else:
+            cli_status = probe_gemini_cli()
+            st.session_state["gemini_cli_status"] = cli_status
+
+    gate_error = get_backend_gate_error(
+        backend_mode,
+        has_api_key=has_api_key,
+        cli_status=cli_status,
+    )
+    if gate_error is None:
         return True
-    st.error("API 키가 설정되지 않았습니다. 사이드바에서 먼저 설정해 주세요.")
+    st.error(gate_error)
     return False
 
 

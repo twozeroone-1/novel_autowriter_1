@@ -2,7 +2,7 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 import streamlit as st
@@ -19,6 +19,7 @@ from core.api_key_store import (
 from core.app_paths import DATA_PROJECTS_DIR
 from core.generator import Generator
 from core.llm import LLMError
+from core.llm_backend import GeminiCliStatus, probe_gemini_cli, resolve_backend_mode, test_gemini_cli_connection
 from core.model_catalog import get_available_models
 from core.token_budget import get_budget_recommendations, get_field_stats
 
@@ -56,6 +57,23 @@ class ProjectFieldPanel:
     expander_label: str
     preview_text: str
     expanded: bool
+
+
+BACKEND_MODE_OPTIONS = {
+    "auto": "자동 (CLI 우선, 실패 시 API)",
+    "api": "Gemini API만 사용",
+    "cli": "Gemini CLI만 사용",
+}
+
+
+def format_cli_status(status: GeminiCliStatus) -> str:
+    if not status.available:
+        return "설치 안 됨"
+    if status.authenticated is True:
+        return "OAuth 사용 가능"
+    if status.authenticated is False:
+        return "로그인 필요"
+    return "설치됨 · 테스트 필요"
 
 
 def render_section_header(title: str, subtitle: str, guide_text: str) -> None:
@@ -433,6 +451,15 @@ def render_sidebar(
         secure_storage_available = has_secure_storage()
         secure_api_key_exists = bool(get_secure_api_key())
         plain_env_key_exists = env_file_has_key()
+        current_backend_mode = resolve_backend_mode(os.getenv("GEMINI_BACKEND", "auto"))
+        current_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        detected_cli_status = probe_gemini_cli()
+        stored_cli_status = st.session_state.get("gemini_cli_status")
+        if isinstance(stored_cli_status, GeminiCliStatus) and stored_cli_status.path == detected_cli_status.path:
+            cli_status = replace(stored_cli_status, version=detected_cli_status.version or stored_cli_status.version)
+        else:
+            cli_status = detected_cli_status
+            st.session_state["gemini_cli_status"] = cli_status
 
         st.divider()
         if secure_api_key_exists:
@@ -441,6 +468,8 @@ def render_sidebar(
             st.caption("API 상태: 이번 실행에만 적용됨")
         else:
             st.caption("API 상태: 설정 안 됨")
+        st.caption(f"LLM 백엔드: {BACKEND_MODE_OPTIONS[current_backend_mode]}")
+        st.caption(f"Gemini CLI 상태: {format_cli_status(cli_status)}")
 
         with st.expander("API / 모델 설정", expanded=False):
             if secure_api_key_exists:
@@ -498,7 +527,6 @@ def render_sidebar(
                         st.success("API 키를 `.env`에 저장했습니다.")
                         st.rerun()
 
-            current_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
             available_models = get_available_models()
             selected_model = st.selectbox(
                 "Gemini 모델",
@@ -508,7 +536,43 @@ def render_sidebar(
             if selected_model != current_model:
                 set_env_variable("GEMINI_MODEL", selected_model)
                 load_dotenv(override=True)
+                st.session_state.pop("gemini_cli_status", None)
                 st.success(f"기본 모델을 '{selected_model}'로 변경했습니다.")
+                st.rerun()
+
+            selected_backend_mode = st.selectbox(
+                "LLM 백엔드",
+                options=list(BACKEND_MODE_OPTIONS.keys()),
+                index=list(BACKEND_MODE_OPTIONS.keys()).index(current_backend_mode),
+                format_func=lambda key: BACKEND_MODE_OPTIONS[key],
+                help="auto는 Gemini CLI를 먼저 시도하고, 실패하면 API로 넘어갑니다.",
+            )
+            if selected_backend_mode != current_backend_mode:
+                set_env_variable("GEMINI_BACKEND", selected_backend_mode)
+                load_dotenv(override=True)
+                st.success(f"LLM 백엔드를 '{BACKEND_MODE_OPTIONS[selected_backend_mode]}'로 변경했습니다.")
+                st.rerun()
+
+            st.caption("Gemini CLI는 사용자가 별도로 OAuth 로그인해 둔 공식 CLI를 그대로 사용합니다.")
+            if cli_status.path:
+                st.code(cli_status.path, language="text")
+            if cli_status.version:
+                st.caption(f"Gemini CLI 버전: {cli_status.version}")
+            if cli_status.message:
+                st.caption(cli_status.message)
+
+            if st.button("CLI 연결 테스트", use_container_width=True):
+                with st.spinner("Gemini CLI 연결을 확인하는 중입니다..."):
+                    tested_status = test_gemini_cli_connection(selected_model, executable_path=cli_status.path)
+                st.session_state["gemini_cli_status"] = tested_status
+                if tested_status.authenticated is True:
+                    st.success("Gemini CLI OAuth 연결이 정상입니다.")
+                elif tested_status.authenticated is False:
+                    st.warning(tested_status.message)
+                elif not tested_status.available:
+                    st.error(tested_status.message)
+                else:
+                    st.info(tested_status.message)
                 st.rerun()
 
             st.link_button(

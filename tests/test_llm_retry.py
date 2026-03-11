@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from core.llm import LLMError, _should_retry_on_error, generate_text
+from core.llm_backend import LlmBackendResult
 
 
 class FakeConfig:
@@ -61,12 +62,31 @@ class TestLlmRetryPolicy(unittest.TestCase):
             TransportError=FakeTransportError,
         )
 
-        with patch("core.llm.genai_errors", fake_errors), patch("core.llm.httpx", fake_httpx):
+        with patch("core.llm_backend.genai_errors", fake_errors), patch("core.llm_backend.httpx", fake_httpx):
             self.assertTrue(_should_retry_on_error(FakeServerError(503, "UNAVAILABLE", "server down")))
             self.assertTrue(_should_retry_on_error(FakeClientError(429, "RESOURCE_EXHAUSTED", "quota exhausted")))
             self.assertTrue(_should_retry_on_error(FakeTimeoutException("timed out")))
             self.assertFalse(_should_retry_on_error(FakeClientError(400, "INVALID_ARGUMENT", "bad prompt")))
             self.assertFalse(_should_retry_on_error(ValueError("bad prompt")))
+
+    def test_generate_text_reads_backend_mode_from_environment(self):
+        with patch(
+            "core.llm.generate_via_backend_mode",
+            return_value=LlmBackendResult(text="hello", backend_used="cli", diagnostics=()),
+        ) as mocked_generate, patch.dict(
+            "os.environ",
+            {"GEMINI_BACKEND": "cli", "GEMINI_MODEL": "gemini-2.5-flash"},
+            clear=True,
+        ):
+            result = generate_text("prompt body", system_instruction="system note", temperature=0.2)
+
+        self.assertEqual(result, "hello")
+        request = mocked_generate.call_args.args[1]
+        self.assertEqual(mocked_generate.call_args.args[0], "cli")
+        self.assertEqual(request.prompt, "prompt body")
+        self.assertEqual(request.system_instruction, "system note")
+        self.assertEqual(request.temperature, 0.2)
+        self.assertEqual(request.model_name, "gemini-2.5-flash")
 
     def test_generate_text_retries_retryable_error_and_uses_second_key(self):
         call_log: list[tuple[str, str, str, float, str | None]] = []
@@ -89,10 +109,12 @@ class TestLlmRetryPolicy(unittest.TestCase):
         fake_types = SimpleNamespace(GenerateContentConfig=FakeConfig)
         fake_genai = FakeGenAI(client_factory)
 
-        with patch("core.llm.genai", fake_genai), patch("core.llm.types", fake_types), patch(
-            "core.llm.genai_errors", fake_errors
-        ), patch("core.llm.load_secure_api_key_into_environment", return_value=False), patch.dict(
-            "os.environ", {"GOOGLE_API_KEY": "key1,key2", "GEMINI_MODEL": "gemini-2.5-flash"}, clear=True
+        with patch("core.llm_backend.genai", fake_genai), patch("core.llm_backend.types", fake_types), patch(
+            "core.llm_backend.genai_errors", fake_errors
+        ), patch("core.llm_backend.load_secure_api_key_into_environment", return_value=False), patch.dict(
+            "os.environ",
+            {"GOOGLE_API_KEY": "key1,key2", "GEMINI_MODEL": "gemini-2.5-flash", "GEMINI_BACKEND": "api"},
+            clear=True,
         ):
             result = generate_text("prompt body", system_instruction="system note", temperature=0.2)
 
@@ -116,11 +138,11 @@ class TestLlmRetryPolicy(unittest.TestCase):
         fake_types = SimpleNamespace(GenerateContentConfig=FakeConfig)
         fake_genai = FakeGenAI(client_factory)
 
-        with patch("core.llm.genai", fake_genai), patch("core.llm.types", fake_types), patch(
-            "core.llm.load_secure_api_key_into_environment", return_value=False
+        with patch("core.llm_backend.genai", fake_genai), patch("core.llm_backend.types", fake_types), patch(
+            "core.llm_backend.load_secure_api_key_into_environment", return_value=False
         ), patch.dict(
             "os.environ",
-            {"GOOGLE_API_KEY": "key1,key2", "GEMINI_MODEL": "gemini-2.5-flash"},
+            {"GOOGLE_API_KEY": "key1,key2", "GEMINI_MODEL": "gemini-2.5-flash", "GEMINI_BACKEND": "api"},
             clear=True,
         ):
             with self.assertRaises(LLMError):

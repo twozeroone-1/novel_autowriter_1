@@ -205,6 +205,15 @@ def resolve_summary_suggestion_source(pasted_text: str, latest_chapter_path: Pat
     return "", ""
 
 
+def apply_pending_project_textarea_updates(session_state: dict[str, Any]) -> None:
+    pending_updates = session_state.pop("_pending_project_textarea_updates", None)
+    if not pending_updates:
+        return
+
+    for textarea_key, textarea_value in pending_updates.items():
+        session_state[textarea_key] = textarea_value
+
+
 def build_project_field_panels(
     specs: tuple[ProjectFieldSpec, ...],
     field_stats: list[dict],
@@ -350,7 +359,8 @@ def render_project_text_field(
                             error_prefix="STATE 제안 생성 중 오류가 발생했습니다",
                         )
                         if suggested_state is not None:
-                            st.session_state[spec.textarea_key] = suggested_state
+                            pending_updates = st.session_state.setdefault("_pending_project_textarea_updates", {})
+                            pending_updates[spec.textarea_key] = suggested_state
                             st.session_state["_pending_project_notice"] = f"{source_label} 기준 STATE 제안안을 입력창에 채웠습니다."
                             st.rerun()
 
@@ -652,6 +662,7 @@ def render_project_settings_tab(
         reset_keys = pending_widget_reset if isinstance(pending_widget_reset, list) else [pending_widget_reset]
         for widget_key in reset_keys:
             st.session_state.pop(widget_key, None)
+    apply_pending_project_textarea_updates(st.session_state)
 
     st.header("프로젝트 통합 설정")
     st.markdown(

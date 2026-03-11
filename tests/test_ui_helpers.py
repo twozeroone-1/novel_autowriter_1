@@ -7,6 +7,7 @@ from ui.app import PROJECT_STATE_KEYS, normalize_project_name
 from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps, select_context_update_value
 from ui.workspace import (
     ProjectFieldSpec,
+    apply_pending_project_textarea_updates,
     build_project_field_panels,
     resolve_summary_suggestion_source,
     summarize_text_preview,
@@ -185,6 +186,28 @@ class TestUiHelpers(unittest.TestCase):
 
     def test_project_state_keys_include_workspace_state_source_text(self):
         self.assertIn("workspace_state_source_text", PROJECT_STATE_KEYS)
+
+    def test_apply_pending_project_textarea_updates_applies_and_clears_pending_values(self):
+        session_state = {
+            "_pending_project_textarea_updates": {
+                "ta_state": "new state",
+                "ta_tone": "new tone",
+            },
+            "ta_state": "old state",
+        }
+
+        apply_pending_project_textarea_updates(session_state)
+
+        self.assertEqual(session_state["ta_state"], "new state")
+        self.assertEqual(session_state["ta_tone"], "new tone")
+        self.assertNotIn("_pending_project_textarea_updates", session_state)
+
+    def test_apply_pending_project_textarea_updates_noops_without_pending_values(self):
+        session_state = {"ta_state": "old state"}
+
+        apply_pending_project_textarea_updates(session_state)
+
+        self.assertEqual(session_state, {"ta_state": "old state"})
 
 
 if __name__ == "__main__":

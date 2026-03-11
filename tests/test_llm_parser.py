@@ -1,5 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
+from core.generator import Generator
 from core.llm import _extract_first_json_value, _extract_last_json_object
 
 
@@ -44,6 +47,25 @@ noise line
         raw = 'prefix {"ignored": true} then [{"kept": true}] suffix'
         parsed = _extract_first_json_value(raw, expected_type=list)
         self.assertEqual(parsed, [{"kept": True}])
+
+    def test_generate_characters_passes_project_and_feature_to_generate_text(self):
+        generator = Generator.__new__(Generator)
+        generator.ctx = SimpleNamespace(project_name="sample_project")
+
+        with patch(
+            "core.generator.generate_text",
+            return_value='[{"id":"char_001","name":"Hero","role":"lead","description":"desc","traits":["bold"]}]',
+        ) as mocked_generate:
+            result = generator.generate_characters(
+                worldview="world text",
+                continuity="continuity text",
+                state="state text",
+                summary_of_previous="summary text",
+            )
+
+        self.assertIn('"char_001"', result)
+        self.assertEqual(mocked_generate.call_args.kwargs["project_name"], "sample_project")
+        self.assertEqual(mocked_generate.call_args.kwargs["feature"], "character_extract")
 
 
 if __name__ == "__main__":

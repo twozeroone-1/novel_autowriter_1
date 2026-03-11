@@ -102,6 +102,7 @@ class TestLlmBackends(unittest.TestCase):
 
         self.assertEqual(result.text, "api text")
         self.assertEqual(result.backend_used, "api")
+        self.assertIn("missing", " ".join(result.diagnostics))
         self.assertEqual(len(cli_backend.requests), 1)
         self.assertEqual(len(api_backend.requests), 1)
 

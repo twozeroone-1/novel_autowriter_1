@@ -1,10 +1,12 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from core.reviewer import Reviewer
 
 
 class FakeContext:
+    project_name = "sample"
+
     def get_worldview_context(self) -> str:
         return "[WORLD]"
 
@@ -33,6 +35,8 @@ class TestReviewer(unittest.TestCase):
         self.assertIn("[CONTINUITY]", prompt)
         self.assertIn("[STATE]", prompt)
         self.assertIn("draft body", prompt)
+        self.assertEqual(mocked_generate.call_args.kwargs["project_name"], "sample")
+        self.assertEqual(mocked_generate.call_args.kwargs["feature"], "review")
 
     def test_revise_draft_includes_continuity_and_state_context(self):
         reviewer = Reviewer(project_name="sample")
@@ -49,6 +53,8 @@ class TestReviewer(unittest.TestCase):
         self.assertIn("[STATE]", prompt)
         self.assertIn("draft body", prompt)
         self.assertIn("review report", prompt)
+        self.assertEqual(mocked_generate.call_args.kwargs["project_name"], "sample")
+        self.assertEqual(mocked_generate.call_args.kwargs["feature"], "revise")
 
 
 if __name__ == "__main__":

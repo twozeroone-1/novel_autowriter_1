@@ -30,7 +30,12 @@ class Generator:
         )
         print(f">> [{self.ctx.project_name}] 작품 생성 요청 중...")
         system_instruction = f"너는 사용자가 제시한 목표 분량(공백 포함 약 {length_goal}자 내외)을 엄격하게 지키으면서 기승전결이 있는 전개를 작성하는 프로 웹소설 작가야."
-        result = generate_text(prompt, system_instruction=system_instruction)
+        result = generate_text(
+            prompt,
+            system_instruction=system_instruction,
+            project_name=self.ctx.project_name,
+            feature="chapter_generate",
+        )
         return result
         
     def save_chapter(self, title: str, content: str) -> str:
@@ -327,6 +332,8 @@ class Generator:
             prompt,
             system_instruction="너는 매력적인 캐릭터를 짜는 웹소설 기획자야. JSON 형식으로만 답해.",
             temperature=0.2,
+            project_name=self.ctx.project_name,
+            feature="character_extract",
         )
 
         extracted = _extract_first_json_value(result, expected_type=list)

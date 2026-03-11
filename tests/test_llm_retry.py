@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from core.llm import LLMError, _should_retry_on_error, generate_text
-from core.llm_backend import LlmBackendResult
+from core.llm_backend import ApiBackendError, LlmBackendResult
 
 
 class FakeConfig:
@@ -87,6 +87,75 @@ class TestLlmRetryPolicy(unittest.TestCase):
         self.assertEqual(request.system_instruction, "system note")
         self.assertEqual(request.temperature, 0.2)
         self.assertEqual(request.model_name, "gemini-2.5-flash")
+
+    def test_generate_text_infers_project_name_and_feature_from_bound_method(self):
+        class FakeCaller:
+            def __init__(self):
+                self.ctx = SimpleNamespace(project_name="proj")
+
+            def summarize_chapter(self):
+                return generate_text("prompt body")
+
+        with patch(
+            "core.llm.generate_via_backend_mode",
+            return_value=LlmBackendResult(text="hello", backend_used="api", diagnostics=()),
+        ), patch("core.llm.append_llm_run") as mocked_append, patch.dict(
+            "os.environ",
+            {"GEMINI_BACKEND": "api", "GEMINI_MODEL": "gemini-2.5-flash"},
+            clear=True,
+        ):
+            result = FakeCaller().summarize_chapter()
+
+        self.assertEqual(result, "hello")
+        mocked_append.assert_called_once()
+        self.assertEqual(mocked_append.call_args.args[0], "proj")
+        self.assertEqual(mocked_append.call_args.args[1]["feature"], "chapter_summary")
+
+    def test_generate_text_logs_success_with_backend_metadata(self):
+        with patch(
+            "core.llm.generate_via_backend_mode",
+            return_value=LlmBackendResult(text="ok", backend_used="cli", diagnostics=("cli primary path",)),
+        ), patch("core.llm.append_llm_run") as mocked_append, patch.dict(
+            "os.environ",
+            {"GEMINI_BACKEND": "cli", "GEMINI_MODEL": "gemini-2.5-flash"},
+            clear=True,
+        ):
+            result = generate_text(
+                "prompt body",
+                system_instruction="system note",
+                temperature=0.2,
+                project_name="proj",
+                feature="idea",
+            )
+
+        self.assertEqual(result, "ok")
+        mocked_append.assert_called_once()
+        record = mocked_append.call_args.args[1]
+        self.assertEqual(mocked_append.call_args.args[0], "proj")
+        self.assertEqual(record["feature"], "idea")
+        self.assertEqual(record["requested_backend"], "cli")
+        self.assertEqual(record["actual_backend"], "cli")
+        self.assertTrue(record["success"])
+        self.assertEqual(record["prompt_text"], "prompt body")
+        self.assertEqual(record["response_text"], "ok")
+
+    def test_generate_text_logs_failure_before_raising_llm_error(self):
+        with patch(
+            "core.llm.generate_via_backend_mode",
+            side_effect=ApiBackendError("api failed"),
+        ), patch("core.llm.append_llm_run") as mocked_append, patch.dict(
+            "os.environ",
+            {"GEMINI_BACKEND": "api", "GEMINI_MODEL": "gemini-2.5-flash"},
+            clear=True,
+        ):
+            with self.assertRaises(LLMError):
+                generate_text("prompt", project_name="proj", feature="review")
+
+        mocked_append.assert_called_once()
+        record = mocked_append.call_args.args[1]
+        self.assertFalse(record["success"])
+        self.assertEqual(record["error_text"], "api failed")
+        self.assertEqual(record["response_text"], "")
 
     def test_generate_text_retries_retryable_error_and_uses_second_key(self):
         call_log: list[tuple[str, str, str, float, str | None]] = []

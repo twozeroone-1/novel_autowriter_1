@@ -65,6 +65,7 @@ class LlmBackendResult:
     text: str
     backend_used: str
     diagnostics: tuple[str, ...] = ()
+    stderr_text: str = ""
 
 
 @dataclass(frozen=True)
@@ -310,7 +311,7 @@ class GeminiCliBackend:
                 raise CliAuthError(combined_output or "Gemini CLI authentication is required.")
             raise CliInvocationError("Gemini CLI returned an empty response.")
 
-        return LlmBackendResult(text=output, backend_used="cli", diagnostics=())
+        return LlmBackendResult(text=output, backend_used="cli", diagnostics=(), stderr_text=error_output)
 
 
 class GeminiApiBackend:
@@ -345,7 +346,7 @@ class GeminiApiBackend:
                 text = getattr(response, "text", None)
                 if not text or not text.strip():
                     raise ApiBackendError("Gemini API returned an empty response.")
-                return LlmBackendResult(text=text, backend_used="api", diagnostics=())
+                return LlmBackendResult(text=text, backend_used="api", diagnostics=(), stderr_text="")
             except MemoryError:
                 raise
             except ApiBackendError:

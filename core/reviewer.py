@@ -35,7 +35,12 @@ class Reviewer:
 검토 결과를 리포트 형식으로 작성하고, 수정이 필요한 부분들에 대한 구체적인 개선안을 제시하세요.
 """
         print(">> 검수 리포트 작성 중...")
-        result = generate_text(prompt, system_instruction="너는 예리한 통찰력과 경험을 가진 웹소설 담당 편집자야.")
+        result = generate_text(
+            prompt,
+            system_instruction="너는 예리한 통찰력과 경험을 가진 웹소설 담당 편집자야.",
+            project_name=self.ctx.project_name,
+            feature="review",
+        )
         return result
 
     def revise_draft(self, draft_content: str, review_report: str) -> str:
@@ -63,5 +68,10 @@ class Reviewer:
 위의 검수 리포트에서 지적된 문제점(설정 충돌, 문맥, 오탈자 등)을 모두 고려하여 초안을 자연스럽게 수정하세요. 제목은 생략하고 수정된 본문만 출력하세요.
 """
         print(">> 수정본 작성 중...")
-        result = generate_text(prompt, system_instruction="너는 편집자의 피드백을 수용하여 원고를 완벽하게 고쳐 쓰는 탑티어 웹소설 작가야.")
+        result = generate_text(
+            prompt,
+            system_instruction="너는 편집자의 피드백을 수용하여 원고를 완벽하게 고쳐 쓰는 탑티어 웹소설 작가야.",
+            project_name=self.ctx.project_name,
+            feature="revise",
+        )
         return result

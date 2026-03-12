@@ -89,5 +89,34 @@ class TestDiagnosticsUi(unittest.TestCase):
         self.assertTrue(all(call.kwargs["disabled"] for call in mocked_text_area.call_args_list))
 
 
+    def test_build_automation_history_rows_formats_execution_metadata(self):
+        rows = diagnostics_ui.build_automation_history_rows(
+            [
+                {
+                    "timestamp": "2026-03-12T09:18:10.284288+09:00",
+                    "title": "8화",
+                    "success": True,
+                    "saved_path": "C:/novel/8화.md",
+                    "context_update": {"status": "applied"},
+                },
+                {
+                    "timestamp": "2026-03-12T06:42:28.396475+09:00",
+                    "title": "7화",
+                    "success": False,
+                    "error_text": "boom",
+                    "context_update": {"status": "partial_failure"},
+                },
+            ]
+        )
+
+        self.assertEqual(rows[0]["timestamp"], "2026-03-12T09:18:10.284288+09:00")
+        self.assertEqual(rows[0]["title"], "8화")
+        self.assertEqual(rows[0]["result"], "success")
+        self.assertEqual(rows[0]["context_update"], "applied")
+        self.assertEqual(rows[0]["detail"], "C:/novel/8화.md")
+        self.assertEqual(rows[1]["result"], "failed")
+        self.assertEqual(rows[1]["detail"], "boom")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import streamlit as st
 
+from core.automation_store import AutomationStore
 from core.diagnostics import build_recent_summary, load_recent_llm_runs
 
 
@@ -51,6 +52,22 @@ def build_detail_rows(records: list[dict]) -> list[dict]:
     return rows
 
 
+def build_automation_history_rows(records: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for record in records:
+        context_update = record.get("context_update", {}) or {}
+        rows.append(
+            {
+                "timestamp": record.get("timestamp", ""),
+                "title": record.get("title", ""),
+                "result": "success" if record.get("success") else "failed",
+                "context_update": context_update.get("status", "-"),
+                "detail": record.get("saved_path", "") if record.get("success") else record.get("error_text", ""),
+            }
+        )
+    return rows
+
+
 def get_diagnostics_warning_text() -> str:
     return "이 화면에는 민감한 프롬프트와 응답 원문이 포함될 수 있습니다. 필요한 경우에만 상세 원문을 펼쳐서 확인해 주세요."
 
@@ -76,6 +93,7 @@ def render_detail_fields(row: dict, *, index: int) -> None:
 def render_diagnostics_panel(project_name: str) -> None:
     records = load_recent_llm_runs(project_name)
     summary = build_recent_summary(records)
+    automation_history = AutomationStore(project_name=project_name).load_recent_history(limit=10)
 
     with st.expander("고급: 진단 / 실행 기록", expanded=False):
         st.warning(get_diagnostics_warning_text())
@@ -116,7 +134,7 @@ def render_diagnostics_panel(project_name: str) -> None:
 
         if not filtered_records:
             st.caption("최근 24시간 기록이 없습니다.")
-            return
+            pass
 
         for index, row in enumerate(build_detail_rows(filtered_records)):
             label = (
@@ -129,3 +147,14 @@ def render_diagnostics_panel(project_name: str) -> None:
             )
             with st.expander(label, expanded=False):
                 render_detail_fields(row, index=index)
+
+        st.divider()
+        st.caption("자동화 연재 실행 기록")
+        if automation_history:
+            st.dataframe(
+                build_automation_history_rows(automation_history),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.caption("저장된 자동화 실행 기록이 없습니다.")

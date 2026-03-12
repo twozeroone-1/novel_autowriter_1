@@ -2,6 +2,9 @@ from core.llm import generate_text
 
 
 class Planner:
+    def __init__(self, project_name: str | None = None):
+        self.project_name = project_name
+
     def suggest_ideas(
         self,
         platform_name: str,
@@ -30,7 +33,7 @@ class Planner:
         return generate_text(
             prompt,
             system_instruction="너는 웹소설 시장 트렌드와 클릭률 최적화에 강한 기획자다.",
-            project_name=None,
+            project_name=self.project_name,
             feature="idea",
         ).strip()
 
@@ -73,6 +76,6 @@ class Planner:
         return generate_text(
             prompt,
             system_instruction="너는 장편 연재 구조 설계와 상업적 반응성에 특화한 시리즈 플래너다.",
-            project_name=None,
+            project_name=self.project_name,
             feature="plot",
         ).strip()

@@ -344,7 +344,7 @@ def render_generation_tab(app: Any) -> None:
         help="loose: 느슨한 참고 / balanced: 권장 / strict: 플롯 우선",
     )
     if not saved_plot_outline:
-        st.caption("저장한 플롯이 없어 플롯 반영 옵션은 비활성화되어 있습니다. [6] 탭에서 먼저 생성해 주세요.")
+        st.caption("저장한 플롯이 없어 플롯 반영 옵션은 비활성화되어 있습니다. [1] 프로젝트 통합 설정 > 대형 플롯에서 먼저 생성해 주세요.")
 
     render_generation_budget_panel(
         generator,

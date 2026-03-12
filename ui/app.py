@@ -76,6 +76,7 @@ PROJECT_STATE_KEYS = [
     "plot_phase3",
     "plot_result",
     "plot_result_view",
+    "project_settings_subsection",
     "automation_enabled",
     "automation_schedule_type",
     "automation_schedule_time",
@@ -87,6 +88,18 @@ PROJECT_STATE_KEYS = [
     "automation_selected_job_id",
     "delete_project_confirm",
 ]
+PROJECT_TAB_LABELS = (
+    "[1] 프로젝트 통합 설정",
+    "[2] 회차 생성",
+    "[3] 원고 검수",
+    "[4] 반자동 연재 모드",
+    "[5] 자동화 연재 모드",
+)
+PROJECT_SETTINGS_SUBSECTION_LABELS = (
+    "기본 설정",
+    "아이디어/제목",
+    "대형 플롯",
+)
 HIDDEN_PROJECT_NAMES = {"default_project", "sample"}
 PROJECT_NAME_PATTERN = re.compile(r"^[0-9A-Za-z\uAC00-\uD7A3 _-]{1,50}$")
 
@@ -173,7 +186,7 @@ def build_app_services(project_name: str) -> AppServices:
     generator = get_cached_generator(project_name)
     reviewer = get_cached_reviewer(project_name)
     automator = Automator(project_name=project_name, generator=generator, reviewer=reviewer)
-    planner = Planner()
+    planner = Planner(project_name=project_name)
     return AppServices(
         generator=generator,
         reviewer=reviewer,
@@ -181,6 +194,50 @@ def build_app_services(project_name: str) -> AppServices:
         planner=planner,
         config_path_hint=generator.ctx.config_path.as_posix(),
         chars_path_hint=generator.ctx.chars_path.as_posix(),
+    )
+
+
+def render_project_settings_hub(app: AppServices) -> None:
+    st.caption("보조 메뉴")
+
+    segmented_control = getattr(st, "segmented_control", None)
+    if callable(segmented_control):
+        selected_section = segmented_control(
+            "프로젝트 통합 설정 보조 메뉴",
+            PROJECT_SETTINGS_SUBSECTION_LABELS,
+            default=PROJECT_SETTINGS_SUBSECTION_LABELS[0],
+            key="project_settings_subsection",
+            label_visibility="collapsed",
+        )
+    else:
+        selected_section = st.radio(
+            "프로젝트 통합 설정 보조 메뉴",
+            PROJECT_SETTINGS_SUBSECTION_LABELS,
+            key="project_settings_subsection",
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+    if selected_section == PROJECT_SETTINGS_SUBSECTION_LABELS[0]:
+        render_project_settings_tab_panel(
+            app,
+            ensure_api_key=ensure_api_key,
+            run_with_status=run_with_status,
+        )
+        return
+
+    if selected_section == PROJECT_SETTINGS_SUBSECTION_LABELS[1]:
+        render_idea_tab_panel(
+            app,
+            ensure_api_key=ensure_api_key,
+            run_with_status=run_with_status,
+        )
+        return
+
+    render_plot_tab_panel(
+        app,
+        ensure_api_key=ensure_api_key,
+        run_with_status=run_with_status,
     )
 
 
@@ -202,24 +259,10 @@ def main() -> None:
     st.title(f"AI 소설 스튜디오 - [{current_project}]")
     st.markdown("현재 선택한 작품 환경에서 설정 관리, 회차 생성, 검수, 아이디어와 플롯 설계를 진행합니다.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-        [
-            "[1] 프로젝트 통합 설정",
-            "[2] 회차 생성",
-            "[3] 원고 검수",
-            "[4] 반자동 연재 모드",
-            "[5] 아이디어/제목",
-            "[6] 대형 플롯",
-            "[7] 자동화 연재 모드",
-        ]
-    )
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(PROJECT_TAB_LABELS)
 
     with tab1:
-        render_project_settings_tab_panel(
-            app,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
+        render_project_settings_hub(app)
 
     with tab2:
         render_generation_tab(app)
@@ -231,20 +274,6 @@ def main() -> None:
         render_auto_mode_tab(app)
 
     with tab5:
-        render_idea_tab_panel(
-            app,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
-
-    with tab6:
-        render_plot_tab_panel(
-            app,
-            ensure_api_key=ensure_api_key,
-            run_with_status=run_with_status,
-        )
-
-    with tab7:
         render_automation_tab(app)
 
 

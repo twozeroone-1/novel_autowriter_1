@@ -14,7 +14,8 @@ def render_idea_tab(
 ) -> None:
     planner = app.planner
 
-    st.header("아이디어/제목 추천")
+    st.subheader("아이디어/제목")
+    st.caption("프로젝트 통합 설정 안에서 쓰는 보조 도구입니다.")
     st.markdown("플랫폼, 키워드, 원하는 톤을 바탕으로 소설 아이디어와 제목 후보를 생성합니다.")
 
     idea_platform = st.text_input(
@@ -68,7 +69,8 @@ def render_plot_tab(
     generator = app.generator
     planner = app.planner
 
-    st.header("대형 플롯 설계")
+    st.subheader("대형 플롯")
+    st.caption("프로젝트 통합 설정 안에서 쓰는 보조 도구입니다.")
     st.markdown("300화 안팎 장편 기준으로 거시 플롯과 30화 단위 대형 사건 구성을 생성합니다.")
 
     left_col, right_col = st.columns(2)

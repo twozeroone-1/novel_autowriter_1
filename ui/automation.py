@@ -139,7 +139,7 @@ def render_automation_tab(app) -> None:
     runtime = store.load_runtime()
     history = store.load_recent_history(limit=10)
 
-    st.header("[7] 자동화 연재 모드")
+    st.header("[5] 자동화 연재 모드")
     st.caption("브라우저 탭을 닫아도 `streamlit run` 프로세스가 살아 있으면 예약 실행이 계속됩니다.")
 
     summary_col1, summary_col2, summary_col3 = st.columns(3)

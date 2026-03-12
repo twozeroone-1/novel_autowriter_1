@@ -3,7 +3,12 @@ import unittest
 from pathlib import Path
 
 from core.token_budget import get_field_stats
-from ui.app import PROJECT_STATE_KEYS, normalize_project_name
+from ui.app import (
+    PROJECT_SETTINGS_SUBSECTION_LABELS,
+    PROJECT_STATE_KEYS,
+    PROJECT_TAB_LABELS,
+    normalize_project_name,
+)
 from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps, select_context_update_value
 from ui.workspace import (
     ProjectFieldSpec,
@@ -186,6 +191,31 @@ class TestUiHelpers(unittest.TestCase):
 
     def test_project_state_keys_include_workspace_state_source_text(self):
         self.assertIn("workspace_state_source_text", PROJECT_STATE_KEYS)
+
+    def test_project_state_keys_include_project_settings_subsection(self):
+        self.assertIn("project_settings_subsection", PROJECT_STATE_KEYS)
+
+    def test_project_tab_labels_follow_grouped_order(self):
+        self.assertEqual(
+            PROJECT_TAB_LABELS,
+            (
+                "[1] 프로젝트 통합 설정",
+                "[2] 회차 생성",
+                "[3] 원고 검수",
+                "[4] 반자동 연재 모드",
+                "[5] 자동화 연재 모드",
+            ),
+        )
+
+    def test_project_settings_subsection_labels_follow_secondary_navigation_order(self):
+        self.assertEqual(
+            PROJECT_SETTINGS_SUBSECTION_LABELS,
+            (
+                "기본 설정",
+                "아이디어/제목",
+                "대형 플롯",
+            ),
+        )
 
     def test_apply_pending_project_textarea_updates_applies_and_clears_pending_values(self):
         session_state = {

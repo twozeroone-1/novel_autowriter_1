@@ -23,6 +23,7 @@ from ui.planning import (
     render_idea_tab as render_idea_tab_panel,
     render_plot_tab as render_plot_tab_panel,
 )
+from ui.publishing import render_publishing_tab
 from ui.workspace import (
     render_project_settings_tab as render_project_settings_tab_panel,
     render_sidebar as render_sidebar_panel,
@@ -94,6 +95,7 @@ PROJECT_TAB_LABELS = (
     "[3] 원고 검수",
     "[4] 반자동 연재 모드",
     "[5] 자동화 연재 모드",
+    "[6] 외부 플랫폼 업로드",
 )
 PROJECT_SETTINGS_SUBSECTION_LABELS = (
     "기본 설정",
@@ -259,7 +261,7 @@ def main() -> None:
     st.title(f"AI 소설 스튜디오 - [{current_project}]")
     st.markdown("현재 선택한 작품 환경에서 설정 관리, 회차 생성, 검수, 아이디어와 플롯 설계를 진행합니다.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(PROJECT_TAB_LABELS)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(PROJECT_TAB_LABELS)
 
     with tab1:
         render_project_settings_hub(app)
@@ -275,6 +277,9 @@ def main() -> None:
 
     with tab5:
         render_automation_tab(app)
+
+    with tab6:
+        render_publishing_tab(app)
 
 
 if __name__ == "__main__":

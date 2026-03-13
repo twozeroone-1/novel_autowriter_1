@@ -13,9 +13,9 @@ from core.platform_clients.playwright_session import PlaywrightBrowserSession
 class MunpiaClient(BasePlatformClient):
     LOGIN_URL = "https://nssl.munpia.com/login"
     DEFAULT_SELECTORS = {
-        "login_username": "[placeholder='아이디']",
-        "login_password": "[placeholder='비밀번호']",
-        "login_submit": "button:has-text('로그인')",
+        "login_username": "#username",
+        "login_password": "#password",
+        "login_submit": "button[type='submit']",
         "create_title": "input[name='title']",
         "create_description": "textarea[name='description']",
         "create_submit": "button[type='submit']",

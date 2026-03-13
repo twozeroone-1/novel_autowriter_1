@@ -39,6 +39,28 @@ class TestMunpiaClient(unittest.TestCase):
 
         self.assertEqual(context.exception.error_type, "requires_user_action")
 
+    def test_login_uses_public_login_form_ids(self):
+        from core.platform_clients.munpia import MunpiaClient
+
+        browser = FakeBrowserSession()
+        client = MunpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+        )
+
+        client.login()
+
+        self.assertEqual(
+            browser.actions[:4],
+            [
+                ("goto", "https://nssl.munpia.com/login", ""),
+                ("fill", "#username", "writer-id"),
+                ("fill", "#password", "secret"),
+                ("click", "button[type='submit']", ""),
+            ],
+        )
+
     def test_munpia_client_maps_missing_editor_field_to_retryable_error(self):
         from core.platform_clients.munpia import MunpiaClient
 

@@ -13,9 +13,9 @@ from core.platform_clients.playwright_session import PlaywrightBrowserSession
 class NovelpiaClient(BasePlatformClient):
     LOGIN_URL = "https://cp.novelpia.com/auth/login"
     DEFAULT_SELECTORS = {
-        "login_username": "[placeholder='아이디를 입력해주세요.'], [placeholder='아이디']",
-        "login_password": "[placeholder='비밀번호를 입력해주세요.'], [placeholder='비밀번호']",
-        "login_submit": "button:has-text('로그인')",
+        "login_username": "#userid",
+        "login_password": "#pwd",
+        "login_submit": "button[type='submit']",
         "create_title": "input[name='title']",
         "create_description": "textarea[name='description']",
         "create_submit": "button[type='submit']",

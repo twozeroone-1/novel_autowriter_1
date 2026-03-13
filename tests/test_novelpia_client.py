@@ -39,6 +39,28 @@ class TestNovelpiaClient(unittest.TestCase):
 
         self.assertEqual(context.exception.error_type, "requires_user_action")
 
+    def test_login_uses_cp_login_form_ids(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        browser = FakeBrowserSession()
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+        )
+
+        client.login()
+
+        self.assertEqual(
+            browser.actions[:4],
+            [
+                ("goto", "https://cp.novelpia.com/auth/login", ""),
+                ("fill", "#userid", "writer-id"),
+                ("fill", "#pwd", "secret"),
+                ("click", "button[type='submit']", ""),
+            ],
+        )
+
     def test_novelpia_client_classifies_additional_auth_as_user_action(self):
         from core.platform_clients.novelpia import NovelpiaClient
 

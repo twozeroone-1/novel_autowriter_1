@@ -11,12 +11,14 @@ class FakeBrowserSession:
         click_urls: list[str] | None = None,
         fail_on_fill: str = "",
         present_selectors: set[str] | None = None,
+        page_contents: dict[str, str] | None = None,
     ):
         self.actions: list[tuple[str, str, str]] = []
         self.current_url = ""
         self.click_urls = list(click_urls or ([click_url] if click_url else []))
         self.fail_on_fill = fail_on_fill
         self.present_selectors = set(present_selectors or set())
+        self.page_contents = dict(page_contents or {})
 
     def goto(self, url: str) -> None:
         self.current_url = url
@@ -35,6 +37,9 @@ class FakeBrowserSession:
     def select_option(self, selector: str, value: str) -> None:
         self.actions.append(("select_option", selector, value))
 
+    def set_multi_select_values(self, selector: str, values) -> None:
+        self.actions.append(("set_multi_select_values", selector, list(values)))
+
     def click_if_present(self, selector: str, timeout_ms: int = 0) -> bool:
         self.actions.append(("click_if_present", selector, str(timeout_ms)))
         if selector not in self.present_selectors:
@@ -47,6 +52,10 @@ class FakeBrowserSession:
         if self.current_url == previous_url and self.click_urls:
             self.current_url = self.click_urls.pop(0)
         return self.current_url != previous_url
+
+    def content(self) -> str:
+        self.actions.append(("content", self.current_url, ""))
+        return self.page_contents.get(self.current_url, "")
 
     def close(self) -> None:
         self.actions.append(("close", "", ""))
@@ -130,6 +139,186 @@ class TestNovelpiaClient(unittest.TestCase):
         self.assertEqual(result.work_id, "work-1")
         self.assertEqual(browser.actions, [])
 
+    def test_ensure_work_uses_real_create_form_fields_and_defaults(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        browser = FakeBrowserSession(
+            click_url="https://novelpia.com/publishing/new_proc",
+            page_contents={
+                "https://novelpia.com/writer_room": """
+                <div class="novel_416999">
+                    <b class="name_st">Project title</b>
+                    <a href="/mynovel/all/write/416999">episode</a>
+                </div>
+                """
+            },
+        )
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "create_work_url": "https://novelpia.com/publishing/new",
+            },
+        )
+
+        result = client.ensure_work(
+            PlatformWorkMetadata(
+                title="Project title",
+                description="desc",
+                genre="현대판타지",
+                age_grade="adult",
+            ),
+            work_id="",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.work_id, "416999")
+        self.assertEqual(
+            browser.actions[:15],
+            [
+                ("goto", "https://novelpia.com/publishing/new", ""),
+                ("fill", "input[name='novel_name']", "Project title"),
+                ("fill", "textarea[name='novel_story']", "desc"),
+                ("select_option", "select[name='novel_type']", "2"),
+                ("select_option", "select[name='is_monopoly']", "0"),
+                ("select_option", "select[name='novel_age']", "19"),
+                ("select_option", "#main_genre", "12"),
+                ("set_multi_select_values", "select[name='novel_genre[]']", ["현대", "판타지"]),
+                ("click_if_present", ".event-plus-close:visible", "2000"),
+                ("click_if_present", "p.later-close:visible", "1000"),
+                ("click_if_present", ".btn_challenge_cancel:visible", "2000"),
+                ("click", "#btn_save_novel", ""),
+                ("wait_for_url_change", "https://novelpia.com/publishing/new", "10000"),
+                ("goto", "https://novelpia.com/writer_room", ""),
+                ("content", "https://novelpia.com/writer_room", ""),
+            ],
+        )
+
+    def test_ensure_work_dismisses_new_challenge_modal_when_present(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        browser = FakeBrowserSession(
+            click_url="https://novelpia.com/publishing/new_proc",
+            present_selectors={".btn_challenge_cancel:visible"},
+            page_contents={
+                "https://novelpia.com/writer_room": """
+                <div class="novel_416999">
+                    <b class="name_st">Project title</b>
+                    <a href="/mynovel/all/write/416999">episode</a>
+                </div>
+                """
+            },
+        )
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "create_work_url": "https://novelpia.com/publishing/new",
+            },
+        )
+
+        client.ensure_work(
+            PlatformWorkMetadata(
+                title="Project title",
+                description="desc",
+                genre="12",
+            ),
+            work_id="",
+        )
+
+        self.assertIn(
+            ("click_if_present", ".btn_challenge_cancel:visible", "2000"),
+            browser.actions,
+        )
+
+    def test_ensure_work_requires_genre_before_submission(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=FakeBrowserSession(),
+            platform_config={
+                "create_work_url": "https://novelpia.com/publishing/new",
+            },
+        )
+
+        with self.assertRaises(PlatformError) as context:
+            client.ensure_work(
+                PlatformWorkMetadata(
+                    title="Project title",
+                    description="desc",
+                    genre="",
+                ),
+                work_id="",
+            )
+
+        self.assertEqual(context.exception.error_type, "requires_user_action")
+
+    def test_ensure_work_requires_completion_redirect(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=FakeBrowserSession(),
+            platform_config={
+                "create_work_url": "https://novelpia.com/publishing/new",
+            },
+        )
+
+        with self.assertRaises(PlatformError) as context:
+            client.ensure_work(
+                PlatformWorkMetadata(
+                    title="Project title",
+                    description="desc",
+                    genre="1",
+                ),
+                work_id="",
+            )
+
+        self.assertEqual(context.exception.error_type, "retryable")
+
+    def test_ensure_work_prefers_matching_writer_room_entry_over_previous_work(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        browser = FakeBrowserSession(
+            click_url="https://novelpia.com/publishing/new_proc",
+            page_contents={
+                "https://novelpia.com/writer_room": """
+                <div class="novel_416704">
+                    <a href="/mynovel/all/write/416704">episode</a>
+                    <b class="name_st">Older title</b>
+                </div>
+                <div class="novel_416999">
+                    <b class="name_st">Project title</b>
+                    <a href="/mynovel/all/write/416999">episode</a>
+                </div>
+                """
+            },
+        )
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "create_work_url": "https://novelpia.com/publishing/new",
+            },
+        )
+
+        result = client.ensure_work(
+            PlatformWorkMetadata(
+                title="Project title",
+                description="desc",
+                genre="12",
+            ),
+            work_id="",
+        )
+
+        self.assertEqual(result.work_id, "416999")
+
     def test_upload_episode_returns_success_payload(self):
         from core.platform_clients.novelpia import NovelpiaClient
 
@@ -186,6 +375,32 @@ class TestNovelpiaClient(unittest.TestCase):
                 ("click_if_present", "p.later-close:visible", "1000"),
                 ("click", ".btn.btn-block.btn-primary.s_inv", ""),
             ],
+        )
+
+    def test_upload_episode_prefers_request_work_id_over_stale_fixed_editor_url(self):
+        from core.platform_clients.novelpia import NovelpiaClient
+
+        browser = FakeBrowserSession(click_url="https://novelpia.com/mynovel/all/999999")
+        client = NovelpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "upload_url_template": "https://novelpia.com/mynovel/all/write/416704",
+            },
+        )
+
+        client.upload_episode(
+            EpisodeUploadRequest(
+                work_id="999999",
+                episode_title="Episode 12",
+                content="body",
+            )
+        )
+
+        self.assertEqual(
+            browser.actions[0],
+            ("goto", "https://novelpia.com/mynovel/all/write/999999", ""),
         )
 
     def test_upload_episode_sets_private_category_when_requested(self):

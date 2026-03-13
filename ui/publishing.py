@@ -31,6 +31,22 @@ WEEKDAY_LABELS = {
     "sun": "일",
 }
 WEEKDAY_OPTIONS = tuple(WEEKDAY_LABELS.keys())
+NOVELPIA_GENRE_LABELS = {
+    "": "선택",
+    "1": "판타지",
+    "2": "무협",
+    "3": "현대",
+    "5": "고수위",
+    "6": "로맨스",
+    "7": "대체역사",
+    "8": "스포츠",
+    "9": "SF",
+    "10": "기타",
+    "11": "패러디",
+    "12": "현대판타지",
+    "13": "라이트노벨",
+    "14": "공포",
+}
 
 
 def build_schedule_editor_state(schedule_type: str) -> dict[str, bool]:
@@ -237,6 +253,24 @@ def _render_platform_settings(project_name: str, store: PublishingStore, config:
                 height=120,
                 key=f"publishing_{platform_name}_work_description",
             )
+            if platform_name == "novelpia":
+                current_genre = str(platform_config.get("genre", "")).strip()
+                if current_genre not in NOVELPIA_GENRE_LABELS:
+                    current_genre = ""
+                genre = st.selectbox(
+                    f"{label} 메인 장르",
+                    options=list(NOVELPIA_GENRE_LABELS.keys()),
+                    index=list(NOVELPIA_GENRE_LABELS.keys()).index(current_genre),
+                    format_func=lambda value: NOVELPIA_GENRE_LABELS[value],
+                    help="노벨피아 신규 작품 생성 시 필수입니다.",
+                    key=f"publishing_{platform_name}_genre",
+                )
+            else:
+                genre = st.text_input(
+                    f"{label} 장르",
+                    value=str(platform_config.get("genre", "")).strip(),
+                    key=f"publishing_{platform_name}_genre",
+                )
             create_work_url = st.text_input(
                 f"{label} 작품 생성 URL",
                 value=platform_config.get("create_work_url", ""),
@@ -281,6 +315,7 @@ def _render_platform_settings(project_name: str, store: PublishingStore, config:
                     "work_id": work_id.strip(),
                     "work_title": work_title.strip(),
                     "work_description": work_description.strip(),
+                    "genre": str(genre).strip(),
                     "create_work_url": create_work_url.strip(),
                     "upload_url_template": upload_url_template.strip(),
                     "default_publish_visibility": default_visibility,

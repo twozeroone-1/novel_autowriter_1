@@ -33,6 +33,30 @@ class PlaywrightBrowserSession:
     def select_option(self, selector: str, value: str) -> None:
         self._page.locator(selector).first.select_option(value)
 
+    def set_multi_select_values(self, selector: str, values: list[str]) -> None:
+        locator = self._page.locator(selector).first
+        locator.evaluate(
+            """(element, values) => {
+                for (const value of values) {
+                    let option = Array.from(element.options).find(
+                        (candidate) => candidate.value === value || candidate.text === value
+                    );
+                    if (!option || option.value !== value) {
+                        option = new Option(value, value, true, true);
+                        element.add(option);
+                    }
+                    option.selected = true;
+                    option.setAttribute("selected", "selected");
+                }
+                element.dispatchEvent(new Event("input", { bubbles: true }));
+                element.dispatchEvent(new Event("change", { bubbles: true }));
+                if (window.jQuery) {
+                    window.jQuery(element).trigger("change");
+                }
+            }""",
+            values,
+        )
+
     def click_if_present(self, selector: str, timeout_ms: int = 0) -> bool:
         locator = self._page.locator(selector).first
         try:
@@ -49,6 +73,9 @@ class PlaywrightBrowserSession:
                 return True
             self._page.wait_for_timeout(200)
         return self._page.url != previous_url
+
+    def content(self) -> str:
+        return self._page.content()
 
     def close(self) -> None:
         self._browser.close()

@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+import re
 
 from core.platform_clients.base import (
     BasePlatformClient,
@@ -12,13 +13,20 @@ from core.platform_clients.playwright_session import PlaywrightBrowserSession
 
 class NovelpiaClient(BasePlatformClient):
     LOGIN_URL = "https://novelpia.com/mybook/mynovel"
+    WRITER_ROOM_URL = "https://novelpia.com/writer_room"
     DEFAULT_SELECTORS = {
         "login_username": "input[name='email']",
         "login_password": "input[name='wd']",
         "login_submit": "button[type='submit']",
-        "create_title": "input[name='title']",
-        "create_description": "textarea[name='description']",
-        "create_submit": "button[type='submit']",
+        "create_title": "input[name='novel_name']",
+        "create_description": "textarea[name='novel_story']",
+        "create_novel_type": "select[name='novel_type']",
+        "create_monopoly": "select[name='is_monopoly']",
+        "create_age_grade": "select[name='novel_age']",
+        "create_main_genre": "#main_genre",
+        "create_hashtags": "select[name='novel_genre[]']",
+        "create_submit": "#btn_save_novel",
+        "create_challenge_cancel": ".btn_challenge_cancel:visible",
         "dismiss_event_overlay": ".event-plus-close:visible",
         "dismiss_event_overlay_secondary": "p.later-close:visible",
         "episode_category": "#content_cate",
@@ -63,17 +71,60 @@ class NovelpiaClient(BasePlatformClient):
         if not create_work_url:
             raise PlatformError("Novelpia work creation URL is not configured.", error_type="requires_user_action")
 
+        title = metadata.title.strip()
+        if not title:
+            raise PlatformError("Novelpia work title is required.", error_type="requires_user_action")
+
+        genre_value = _main_genre_value(metadata.genre)
+        if not genre_value:
+            raise PlatformError("Novelpia main genre is required.", error_type="requires_user_action")
+        hashtag_values = _hashtag_values(
+            genre_value,
+            self.platform_config.get("hashtags", []),
+        )
+        if len(hashtag_values) < 2:
+            raise PlatformError("Novelpia requires at least two hashtags.", error_type="requires_user_action")
+
         browser = self._get_browser()
         selectors = self._selectors()
         try:
             browser.goto(create_work_url)
-            browser.fill(selectors["create_title"], metadata.title)
+            browser.fill(selectors["create_title"], title)
             browser.fill(selectors["create_description"], metadata.description)
+            browser.select_option(selectors["create_novel_type"], "2")
+            browser.select_option(selectors["create_monopoly"], "0")
+            browser.select_option(selectors["create_age_grade"], _age_grade_value(metadata.age_grade))
+            browser.select_option(selectors["create_main_genre"], genre_value)
+            if hasattr(browser, "set_multi_select_values"):
+                browser.set_multi_select_values(selectors["create_hashtags"], hashtag_values)
+            else:
+                browser.select_option(selectors["create_hashtags"], hashtag_values)
+            if hasattr(browser, "click_if_present"):
+                dismissed = browser.click_if_present(selectors["dismiss_event_overlay"], timeout_ms=2000)
+                if not dismissed:
+                    browser.click_if_present(selectors["dismiss_event_overlay_secondary"], timeout_ms=1000)
+                browser.click_if_present(selectors["create_challenge_cancel"], timeout_ms=2000)
             browser.click(selectors["create_submit"])
+            if hasattr(browser, "wait_for_url_change"):
+                if not browser.wait_for_url_change(create_work_url, timeout_ms=10000):
+                    raise PlatformError(
+                        "Novelpia work creation did not leave the create page.",
+                        error_type="retryable",
+                    )
+            elif browser.current_url == create_work_url:
+                raise PlatformError(
+                    "Novelpia work creation did not leave the create page.",
+                    error_type="retryable",
+                )
         except Exception as exc:
+            if isinstance(exc, PlatformError):
+                raise
             raise self._classify_browser_error(exc) from exc
 
-        created_work_id = _extract_last_url_segment(browser.current_url)
+        browser.goto(self.WRITER_ROOM_URL)
+        created_work_id = _extract_novelpia_writer_room_work_id(browser.content(), title)
+        if not created_work_id:
+            raise PlatformError("Novelpia work creation did not yield a work ID.", error_type="retryable")
         return PlatformActionResult(status="done", success=True, work_id=created_work_id)
 
     def upload_episode(self, request: EpisodeUploadRequest) -> PlatformActionResult:
@@ -81,12 +132,9 @@ class NovelpiaClient(BasePlatformClient):
             raise PlatformError("Novelpia work ID is required for episode upload.", error_type="permanent")
 
         upload_url_template = str(self.platform_config.get("upload_url_template", "")).strip()
-        if not upload_url_template:
-            raise PlatformError("Novelpia upload URL template is not configured.", error_type="requires_user_action")
-
         browser = self._get_browser()
         selectors = self._selectors()
-        editor_url = upload_url_template.format(work_id=request.work_id)
+        editor_url = _episode_editor_url(upload_url_template, request.work_id)
         try:
             browser.goto(editor_url)
             browser.fill(selectors["episode_title"], request.episode_title)
@@ -126,7 +174,7 @@ class NovelpiaClient(BasePlatformClient):
             status="done",
             success=True,
             work_id=request.work_id,
-            episode_id=_extract_last_url_segment(browser.current_url),
+            episode_id=_extract_numeric_url_segment(browser.current_url),
         )
 
     def close(self) -> None:
@@ -162,11 +210,12 @@ class NovelpiaClient(BasePlatformClient):
         return PlatformError(message, error_type="permanent")
 
 
-def _extract_last_url_segment(url: str) -> str:
+def _extract_numeric_url_segment(url: str) -> str:
     parsed = urlparse(url)
     path_segments = [segment for segment in parsed.path.split("/") if segment]
-    if path_segments:
-        return path_segments[-1]
+    for segment in reversed(path_segments):
+        if segment.isdigit():
+            return segment
     return ""
 
 
@@ -174,3 +223,152 @@ def _content_category_value(visibility: str) -> str:
     if str(visibility).strip().lower() == "private":
         return "5"
     return "24"
+
+
+def _age_grade_value(age_grade: str) -> str:
+    normalized = str(age_grade).strip().lower()
+    if normalized in {"adult", "19", "19+"}:
+        return "19"
+    if normalized in {"15", "15+"}:
+        return "15"
+    return "0"
+
+
+def _main_genre_value(raw_genre: str) -> str:
+    genre = str(raw_genre).strip()
+    if not genre:
+        return ""
+    normalized = genre.lower()
+    aliases = {
+        "1": "1",
+        "판타지": "1",
+        "fantasy": "1",
+        "2": "2",
+        "무협": "2",
+        "martial": "2",
+        "3": "3",
+        "현대": "3",
+        "modern": "3",
+        "6": "6",
+        "로맨스": "6",
+        "romance": "6",
+        "12": "12",
+        "현대판타지": "12",
+        "urban fantasy": "12",
+        "13": "13",
+        "라이트노벨": "13",
+        "lightnovel": "13",
+        "light novel": "13",
+        "5": "5",
+        "고수위": "5",
+        "adult": "5",
+        "14": "14",
+        "공포": "14",
+        "horror": "14",
+        "9": "9",
+        "sf": "9",
+        "sci-fi": "9",
+        "8": "8",
+        "스포츠": "8",
+        "sports": "8",
+        "7": "7",
+        "대체역사": "7",
+        "alt-history": "7",
+        "alternate history": "7",
+        "10": "10",
+        "기타": "10",
+        "other": "10",
+        "11": "11",
+        "패러디": "11",
+        "parody": "11",
+    }
+    return aliases.get(normalized, genre if genre.isdigit() else "")
+
+
+def _hashtag_values(main_genre: str, configured_hashtags) -> list[str]:
+    allowed_tags = {
+        "판타지",
+        "라이트노벨",
+        "전생",
+        "현대",
+        "중세",
+        "하렘",
+        "드라마",
+        "일상",
+        "로맨스",
+        "SF",
+        "스포츠",
+        "무협",
+    }
+    configured = []
+    if isinstance(configured_hashtags, list):
+        configured = [str(value).strip() for value in configured_hashtags]
+    elif isinstance(configured_hashtags, str):
+        configured = [item.strip() for item in configured_hashtags.split(",")]
+
+    selected = []
+    for value in configured:
+        if value in allowed_tags and value not in selected:
+            selected.append(value)
+
+    if len(selected) >= 2:
+        return selected[:2]
+
+    defaults_by_genre = {
+        "1": ["판타지", "중세"],
+        "2": ["무협", "드라마"],
+        "3": ["현대", "드라마"],
+        "5": ["판타지", "하렘"],
+        "6": ["로맨스", "일상"],
+        "7": ["중세", "드라마"],
+        "8": ["스포츠", "현대"],
+        "9": ["SF", "현대"],
+        "10": ["드라마", "일상"],
+        "11": ["판타지", "라이트노벨"],
+        "12": ["현대", "판타지"],
+        "13": ["라이트노벨", "일상"],
+        "14": ["현대", "드라마"],
+    }
+    for value in defaults_by_genre.get(main_genre, []):
+        if value in allowed_tags and value not in selected:
+            selected.append(value)
+        if len(selected) >= 2:
+            break
+    return selected
+
+
+def _episode_editor_url(upload_url_template: str, work_id: str) -> str:
+    template = str(upload_url_template).strip()
+    normalized_work_id = str(work_id).strip()
+    if not normalized_work_id:
+        return template
+    if "{work_id}" in template:
+        return template.format(work_id=normalized_work_id)
+    if "novelpia.com/mynovel/all/write/" in template:
+        return f"https://novelpia.com/mynovel/all/write/{normalized_work_id}"
+    if template:
+        return template
+    return f"https://novelpia.com/mynovel/all/write/{normalized_work_id}"
+
+
+def _extract_novelpia_writer_room_work_id(html: str, title: str) -> str:
+    if not html or not title:
+        return ""
+    title_index = html.find(title)
+    if title_index == -1:
+        return ""
+    forward_window = html[title_index : min(len(html), title_index + 4000)]
+    match = re.search(r"/mynovel/all/write/(\d+)", forward_window)
+    if match:
+        return match.group(1)
+    match = re.search(r"/novel/(\d+)", forward_window)
+    if match:
+        return match.group(1)
+    backward_window = html[max(0, title_index - 2000) : title_index]
+    match = re.search(r"/mynovel/all/write/(\d+)", backward_window)
+    if match:
+        return match.group(1)
+    match = re.search(r"/novel/(\d+)", backward_window)
+    if match:
+        return match.group(1)
+    return ""

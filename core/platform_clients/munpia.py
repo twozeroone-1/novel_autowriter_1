@@ -22,6 +22,7 @@ class MunpiaClient(BasePlatformClient):
         "episode_title": "input[class*='textfield-module_textfield']",
         "episode_body": "#novelWriteText",
         "episode_submit": "button[class*='button--primary']",
+        "episode_confirm_submit": "button[class*='button--primary'][class*='width-block']",
     }
 
     def __init__(
@@ -83,19 +84,35 @@ class MunpiaClient(BasePlatformClient):
 
         browser = self._get_browser()
         selectors = self._selectors()
+        editor_url = upload_url_template.format(work_id=request.work_id)
         try:
-            browser.goto(upload_url_template.format(work_id=request.work_id))
+            browser.goto(editor_url)
             browser.fill(selectors["episode_title"], request.episode_title)
             browser.fill(selectors["episode_body"], request.content)
             browser.click(selectors["episode_submit"])
+            if hasattr(browser, "click_if_present"):
+                browser.click_if_present(selectors["episode_confirm_submit"], timeout_ms=3000)
+            if hasattr(browser, "wait_for_url_change"):
+                if not browser.wait_for_url_change(editor_url, timeout_ms=10000):
+                    raise PlatformError(
+                        "Munpia episode submission did not reach a completion page.",
+                        error_type="retryable",
+                    )
+            elif browser.current_url == editor_url:
+                raise PlatformError(
+                    "Munpia episode submission did not leave the editor page.",
+                    error_type="retryable",
+                )
         except Exception as exc:
+            if isinstance(exc, PlatformError):
+                raise
             raise self._classify_browser_error(exc) from exc
 
         return PlatformActionResult(
             status="done",
             success=True,
             work_id=request.work_id,
-            episode_id=_extract_last_url_segment(browser.current_url),
+            episode_id=_extract_episode_id(browser.current_url),
         )
 
     def close(self) -> None:
@@ -131,3 +148,10 @@ def _extract_last_url_segment(url: str) -> str:
     if path_segments:
         return path_segments[-1]
     return ""
+
+
+def _extract_episode_id(url: str) -> str:
+    episode_id = _extract_last_url_segment(url)
+    if episode_id == "entry-complete":
+        return ""
+    return episode_id

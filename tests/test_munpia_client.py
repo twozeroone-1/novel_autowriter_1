@@ -4,11 +4,19 @@ from core.platform_clients.base import EpisodeUploadRequest, PlatformError, Plat
 
 
 class FakeBrowserSession:
-    def __init__(self, *, click_url: str = "", fail_on_fill: str = ""):
+    def __init__(
+        self,
+        *,
+        click_url: str = "",
+        click_urls: list[str] | None = None,
+        fail_on_fill: str = "",
+        present_selectors: set[str] | None = None,
+    ):
         self.actions: list[tuple[str, str, str]] = []
         self.current_url = ""
-        self.click_url = click_url
+        self.click_urls = list(click_urls or ([click_url] if click_url else []))
         self.fail_on_fill = fail_on_fill
+        self.present_selectors = set(present_selectors or set())
 
     def goto(self, url: str) -> None:
         self.current_url = url
@@ -21,8 +29,19 @@ class FakeBrowserSession:
 
     def click(self, selector: str) -> None:
         self.actions.append(("click", selector, ""))
-        if self.click_url:
-            self.current_url = self.click_url
+        if self.click_urls:
+            self.current_url = self.click_urls.pop(0)
+
+    def click_if_present(self, selector: str, timeout_ms: int = 0) -> bool:
+        self.actions.append(("click_if_present", selector, str(timeout_ms)))
+        if selector not in self.present_selectors:
+            return False
+        self.click(selector)
+        return True
+
+    def wait_for_url_change(self, previous_url: str, timeout_ms: int = 0) -> bool:
+        self.actions.append(("wait_for_url_change", previous_url, str(timeout_ms)))
+        return self.current_url != previous_url
 
     def close(self) -> None:
         self.actions.append(("close", "", ""))
@@ -126,6 +145,71 @@ class TestMunpiaClient(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertEqual(result.episode_id, "episode-7")
+
+    def test_upload_episode_confirms_modal_before_completion(self):
+        from core.platform_clients.munpia import MunpiaClient
+
+        browser = FakeBrowserSession(
+            click_urls=[
+                "",
+                "https://munpia.test/work/work-1/entry-complete",
+            ],
+            present_selectors={"button[class*='button--primary'][class*='width-block']"},
+        )
+        client = MunpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "upload_url_template": "https://munpia.test/work/{work_id}/episode/new",
+            },
+        )
+
+        result = client.upload_episode(
+            EpisodeUploadRequest(
+                work_id="work-1",
+                episode_title="Episode 12",
+                content="body",
+                visibility="private",
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.episode_id, "")
+        self.assertEqual(
+            browser.actions[3:7],
+            [
+                ("click", "button[class*='button--primary']", ""),
+                ("click_if_present", "button[class*='button--primary'][class*='width-block']", "3000"),
+                ("click", "button[class*='button--primary'][class*='width-block']", ""),
+                ("wait_for_url_change", "https://munpia.test/work/work-1/episode/new", "10000"),
+            ],
+        )
+
+    def test_upload_episode_raises_retryable_when_editor_page_does_not_complete(self):
+        from core.platform_clients.munpia import MunpiaClient
+
+        browser = FakeBrowserSession()
+        client = MunpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "upload_url_template": "https://munpia.test/work/{work_id}/episode/new",
+            },
+        )
+
+        with self.assertRaises(PlatformError) as context:
+            client.upload_episode(
+                EpisodeUploadRequest(
+                    work_id="work-1",
+                    episode_title="Episode 12",
+                    content="body",
+                    visibility="private",
+                )
+            )
+
+        self.assertEqual(context.exception.error_type, "retryable")
 
     def test_upload_episode_uses_writer_form_selectors(self):
         from core.platform_clients.munpia import MunpiaClient

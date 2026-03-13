@@ -19,9 +19,9 @@ class MunpiaClient(BasePlatformClient):
         "create_title": "input[name='title']",
         "create_description": "textarea[name='description']",
         "create_submit": "button[type='submit']",
-        "episode_title": "input[name='title']",
-        "episode_body": "textarea[name='content']",
-        "episode_submit": "button[type='submit']",
+        "episode_title": "input[class*='textfield-module_textfield']",
+        "episode_body": "#novelWriteText",
+        "episode_submit": "button[class*='button--primary']",
     }
 
     def __init__(

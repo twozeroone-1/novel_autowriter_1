@@ -127,6 +127,37 @@ class TestMunpiaClient(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.episode_id, "episode-7")
 
+    def test_upload_episode_uses_writer_form_selectors(self):
+        from core.platform_clients.munpia import MunpiaClient
+
+        browser = FakeBrowserSession(click_url="https://munpia.test/work/work-1/episode/episode-7")
+        client = MunpiaClient(
+            username="writer-id",
+            password="secret",
+            browser_session=browser,
+            platform_config={
+                "upload_url_template": "https://munpia.test/work/{work_id}/episode/new",
+            },
+        )
+
+        client.upload_episode(
+            EpisodeUploadRequest(
+                work_id="work-1",
+                episode_title="Episode 12",
+                content="body",
+            )
+        )
+
+        self.assertEqual(
+            browser.actions[:4],
+            [
+                ("goto", "https://munpia.test/work/work-1/episode/new", ""),
+                ("fill", "input[class*='textfield-module_textfield']", "Episode 12"),
+                ("fill", "#novelWriteText", "body"),
+                ("click", "button[class*='button--primary']", ""),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

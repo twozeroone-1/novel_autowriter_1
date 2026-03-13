@@ -23,6 +23,7 @@ from ui.planning import (
     render_idea_tab as render_idea_tab_panel,
     render_plot_tab as render_plot_tab_panel,
 )
+from ui.publishing import PublishingBackgroundService, render_publishing_tab
 from ui.workspace import (
     render_project_settings_tab as render_project_settings_tab_panel,
     render_sidebar as render_sidebar_panel,
@@ -86,6 +87,44 @@ PROJECT_STATE_KEYS = [
     "automation_job_instruction",
     "automation_job_target_length",
     "automation_selected_job_id",
+    "publishing_enabled",
+    "publishing_browser_headless",
+    "publishing_retry_attempts",
+    "publishing_schedule_type",
+    "publishing_schedule_time",
+    "publishing_schedule_days",
+    "publishing_interval_hours",
+    "publishing_selected_job_id",
+    "publishing_queue_source_path",
+    "publishing_queue_source_path_manual",
+    "publishing_queue_title",
+    "publishing_queue_platforms",
+    "publishing_queue_publish_mode",
+    "publishing_queue_visibility",
+    "publishing_queue_scheduled_date",
+    "publishing_queue_scheduled_time",
+    "publishing_queue_reserved_date",
+    "publishing_queue_reserved_time",
+    "publishing_munpia_enabled",
+    "publishing_munpia_username",
+    "publishing_munpia_password",
+    "publishing_munpia_work_id",
+    "publishing_munpia_work_title",
+    "publishing_munpia_work_description",
+    "publishing_munpia_create_work_url",
+    "publishing_munpia_upload_url_template",
+    "publishing_munpia_default_visibility",
+    "publishing_munpia_default_age_grade",
+    "publishing_novelpia_enabled",
+    "publishing_novelpia_username",
+    "publishing_novelpia_password",
+    "publishing_novelpia_work_id",
+    "publishing_novelpia_work_title",
+    "publishing_novelpia_work_description",
+    "publishing_novelpia_create_work_url",
+    "publishing_novelpia_upload_url_template",
+    "publishing_novelpia_default_visibility",
+    "publishing_novelpia_default_age_grade",
     "delete_project_confirm",
 ]
 PROJECT_TAB_LABELS = (
@@ -94,6 +133,7 @@ PROJECT_TAB_LABELS = (
     "[3] 원고 검수",
     "[4] 반자동 연재 모드",
     "[5] 자동화 연재 모드",
+    "[6] 외부 플랫폼 업로드",
 )
 PROJECT_SETTINGS_SUBSECTION_LABELS = (
     "기본 설정",
@@ -161,6 +201,13 @@ def clear_cached_resources() -> None:
 @st.cache_resource(show_spinner=False)
 def get_automation_background_service() -> AutomationBackgroundService:
     service = AutomationBackgroundService()
+    service.start()
+    return service
+
+
+@st.cache_resource(show_spinner=False)
+def get_publishing_background_service() -> PublishingBackgroundService:
+    service = PublishingBackgroundService()
     service.start()
     return service
 
@@ -243,6 +290,7 @@ def render_project_settings_hub(app: AppServices) -> None:
 
 def main() -> None:
     get_automation_background_service()
+    get_publishing_background_service()
 
     current_project = render_sidebar_panel(
         normalize_project_name=normalize_project_name,
@@ -259,7 +307,7 @@ def main() -> None:
     st.title(f"AI 소설 스튜디오 - [{current_project}]")
     st.markdown("현재 선택한 작품 환경에서 설정 관리, 회차 생성, 검수, 아이디어와 플롯 설계를 진행합니다.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(PROJECT_TAB_LABELS)
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(PROJECT_TAB_LABELS)
 
     with tab1:
         render_project_settings_hub(app)
@@ -275,6 +323,9 @@ def main() -> None:
 
     with tab5:
         render_automation_tab(app)
+
+    with tab6:
+        render_publishing_tab(app)
 
 
 if __name__ == "__main__":

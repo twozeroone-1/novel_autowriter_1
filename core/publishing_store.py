@@ -24,12 +24,26 @@ DEFAULT_PUBLISHING_CONFIG = {
         "munpia": {
             "enabled": False,
             "work_id": "",
+            "work_title": "",
+            "work_description": "",
+            "genre": "",
+            "cover_path": "",
+            "create_work_url": "",
+            "upload_url_template": "",
+            "selectors": {},
             "default_publish_visibility": "public",
             "default_age_grade": "general",
         },
         "novelpia": {
             "enabled": False,
             "work_id": "",
+            "work_title": "",
+            "work_description": "",
+            "genre": "",
+            "cover_path": "",
+            "create_work_url": "",
+            "upload_url_template": "",
+            "selectors": {},
             "default_publish_visibility": "public",
             "default_age_grade": "general",
         },
@@ -64,7 +78,7 @@ class PublishingStore:
     def load_config(self) -> dict:
         if not self.config_path.exists():
             return deepcopy(DEFAULT_PUBLISHING_CONFIG)
-        return deepcopy(DEFAULT_PUBLISHING_CONFIG) | self._read_json(self.config_path)
+        return _deep_merge_dicts(deepcopy(DEFAULT_PUBLISHING_CONFIG), self._read_json(self.config_path))
 
     def save_config(self, config: dict) -> None:
         atomic_write_json(self.config_path, config)
@@ -101,3 +115,13 @@ class PublishingStore:
 
     def _read_json(self, path: Path) -> dict | list:
         return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _deep_merge_dicts(base: dict, override: dict) -> dict:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged

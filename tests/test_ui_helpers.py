@@ -195,6 +195,10 @@ class TestUiHelpers(unittest.TestCase):
     def test_project_state_keys_include_project_settings_subsection(self):
         self.assertIn("project_settings_subsection", PROJECT_STATE_KEYS)
 
+    def test_project_state_keys_include_publishing_controls(self):
+        self.assertIn("publishing_enabled", PROJECT_STATE_KEYS)
+        self.assertIn("publishing_selected_job_id", PROJECT_STATE_KEYS)
+
     def test_project_tab_labels_follow_grouped_order(self):
         self.assertEqual(
             PROJECT_TAB_LABELS,

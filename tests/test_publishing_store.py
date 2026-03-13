@@ -87,6 +87,31 @@ class TestPublishingStore(unittest.TestCase):
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0]["job_id"], "pub_1")
 
+    def test_load_config_keeps_nested_platform_defaults(self):
+        module = importlib.import_module("core.publishing_store")
+        store_cls = getattr(module, "PublishingStore", None)
+        self.assertIsNotNone(store_cls, "PublishingStore should exist")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            projects_dir = Path(tmpdir) / "projects"
+            with patch.object(module, "DATA_PROJECTS_DIR", projects_dir):
+                store = store_cls(project_name="sample")
+                store.save_config(
+                    {
+                        "enabled": True,
+                        "platforms": {
+                            "munpia": {
+                                "enabled": True,
+                            }
+                        },
+                    }
+                )
+                config = store.load_config()
+
+        self.assertTrue(config["platforms"]["munpia"]["enabled"])
+        self.assertIn("default_publish_visibility", config["platforms"]["munpia"])
+        self.assertIn("novelpia", config["platforms"])
+
 
 if __name__ == "__main__":
     unittest.main()

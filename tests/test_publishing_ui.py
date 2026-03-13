@@ -71,6 +71,51 @@ class TestPublishingUi(unittest.TestCase):
         self.assertEqual(summary["success"], 2)
         self.assertEqual(summary["failure"], 1)
 
+    def test_summarize_selected_platforms_returns_both_labels(self):
+        module = self._load_module()
+
+        summary = module.summarize_selected_platforms(
+            {
+                "munpia": {"selected": True},
+                "novelpia": {"selected": True},
+            }
+        )
+
+        self.assertEqual(summary, "문피아, 노벨피아")
+
+    def test_count_pending_publishing_jobs_counts_pending_and_partial_failed(self):
+        module = self._load_module()
+
+        count = module.count_pending_publishing_jobs(
+            [
+                {"status": "pending"},
+                {"status": "partial_failed"},
+                {"status": "done"},
+            ]
+        )
+
+        self.assertEqual(count, 2)
+
+    def test_build_publishing_history_rows_formats_platform_summary(self):
+        module = self._load_module()
+
+        rows = module.build_publishing_history_rows(
+            [
+                {
+                    "timestamp": "2026-03-12T21:00:00+09:00",
+                    "chapter_title": "Episode 12",
+                    "success": False,
+                    "platform_results": {
+                        "munpia": {"success": True},
+                        "novelpia": {"success": False},
+                    },
+                }
+            ]
+        )
+
+        self.assertEqual(rows[0]["결과"], "실패")
+        self.assertEqual(rows[0]["플랫폼"], "문피아, 노벨피아")
+
 
 if __name__ == "__main__":
     unittest.main()

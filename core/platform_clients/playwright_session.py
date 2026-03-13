@@ -30,6 +30,9 @@ class PlaywrightBrowserSession:
     def click(self, selector: str) -> None:
         self._page.locator(selector).first.click()
 
+    def select_option(self, selector: str, value: str) -> None:
+        self._page.locator(selector).first.select_option(value)
+
     def click_if_present(self, selector: str, timeout_ms: int = 0) -> bool:
         locator = self._page.locator(selector).first
         try:

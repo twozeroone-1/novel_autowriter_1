@@ -26,8 +26,14 @@ class FakeGenerator:
         self.calls = []
         self.ctx = FakeContext()
 
-    def create_chapter(self, instruction: str, target_length: int) -> str:
-        self.calls.append(("create_chapter", instruction, target_length))
+    def create_chapter(
+        self,
+        instruction: str,
+        target_length: int,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
+        self.calls.append(("create_chapter", instruction, target_length, include_plot, plot_strength))
         return "draft text"
 
     def save_markdown_document(self, filename_title: str, content: str, heading_title: str | None = None) -> str:
@@ -50,12 +56,23 @@ class FakeReviewer:
     def __init__(self):
         self.calls = []
 
-    def review_chapter(self, draft: str) -> str:
-        self.calls.append(("review_chapter", draft))
+    def review_chapter(
+        self,
+        draft: str,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
+        self.calls.append(("review_chapter", draft, include_plot, plot_strength))
         return "review report"
 
-    def revise_draft(self, draft: str, report: str) -> str:
-        self.calls.append(("revise_draft", draft, report))
+    def revise_draft(
+        self,
+        draft: str,
+        report: str,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
+        self.calls.append(("revise_draft", draft, report, include_plot, plot_strength))
         return "revised draft"
 
 
@@ -92,10 +109,27 @@ class TestAutomator(unittest.TestCase):
         self.assertEqual(result["new_state"], "state text")
         self.assertEqual(result["new_summary"], "summary text")
         self.assertEqual(len(messages), 7)
-        self.assertEqual(generator.calls[0], ("create_chapter", "scene instruction", 3000))
-        self.assertEqual(reviewer.calls[0], ("review_chapter", "draft text"))
-        self.assertEqual(reviewer.calls[1], ("revise_draft", "draft text", "review report"))
+        self.assertEqual(generator.calls[0], ("create_chapter", "scene instruction", 3000, False, "balanced"))
+        self.assertEqual(reviewer.calls[0], ("review_chapter", "draft text", False, "balanced"))
+        self.assertEqual(reviewer.calls[1], ("revise_draft", "draft text", "review report", False, "balanced"))
         self.assertEqual(generator.calls[-1], ("build_context_suggestions", "revised draft"))
+
+    def test_run_single_cycle_passes_plot_options_to_generator(self):
+        generator = FakeGenerator()
+        reviewer = FakeReviewer()
+        automator = Automator(project_name="sample", generator=generator, reviewer=reviewer)
+
+        automator.run_single_cycle(
+            chapter_title="Episode 1",
+            instruction="scene instruction",
+            target_length=3000,
+            include_plot=True,
+            plot_strength="strict",
+        )
+
+        self.assertEqual(generator.calls[0], ("create_chapter", "scene instruction", 3000, True, "strict"))
+        self.assertEqual(reviewer.calls[0], ("review_chapter", "draft text", True, "strict"))
+        self.assertEqual(reviewer.calls[1], ("revise_draft", "draft text", "review report", True, "strict"))
 
     def test_run_single_cycle_keeps_summary_error_in_result(self):
         generator = FakeGenerator()

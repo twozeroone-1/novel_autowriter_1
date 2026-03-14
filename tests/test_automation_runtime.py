@@ -15,9 +15,18 @@ class FakeAutomator:
         self.call_count = 0
         self.before_return = None
         self.apply_calls = []
+        self.run_calls = []
 
-    def run_single_cycle(self, chapter_title: str, instruction: str, target_length: int):
+    def run_single_cycle(
+        self,
+        chapter_title: str,
+        instruction: str,
+        target_length: int,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ):
         self.call_count += 1
+        self.run_calls.append((chapter_title, instruction, target_length, include_plot, plot_strength))
         if self.before_return is not None:
             self.before_return()
         if self.should_fail:
@@ -87,7 +96,42 @@ class TestAutomationRuntime(unittest.TestCase):
         self.assertEqual(state["last_run_at"], now.isoformat())
         self.assertEqual(len(history), 1)
         self.assertEqual(fake_automator.apply_calls, [("state", "summary")])
+        self.assertEqual(fake_automator.run_calls[0], ("Episode 12", "scene instruction", 5000, False, "balanced"))
         self.assertEqual(history[0]["context_update"]["status"], "applied")
+
+    def test_runtime_passes_saved_plot_generation_options_to_automator(self):
+        runtime_cls = self._load_runtime_cls()
+        now = datetime(2026, 3, 12, 21, 0, tzinfo=timezone.utc)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            projects_dir = Path(tmpdir) / "projects"
+            with patch("core.automation_store.DATA_PROJECTS_DIR", projects_dir):
+                store = AutomationStore(project_name="sample")
+                store.save_config(
+                    {
+                        "enabled": True,
+                        "schedule": {"type": "daily", "time": "21:00"},
+                        "generation_options": {"include_plot": True, "plot_strength": "strict"},
+                    }
+                )
+                store.save_queue(
+                    [
+                        {
+                            "id": "job1",
+                            "title": "Episode 12",
+                            "instruction": "scene instruction",
+                            "target_length": 5000,
+                            "status": "pending",
+                            "attempt_count": 0,
+                        }
+                    ]
+                )
+                fake_automator = FakeAutomator()
+                runtime = runtime_cls(store=store, automator=fake_automator)
+
+                runtime.tick(now=now)
+
+        self.assertEqual(fake_automator.run_calls[0], ("Episode 12", "scene instruction", 5000, True, "strict"))
 
     def test_runtime_marks_job_running_before_automator_call(self):
         runtime_cls = self._load_runtime_cls()

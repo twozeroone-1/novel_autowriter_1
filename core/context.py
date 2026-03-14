@@ -241,6 +241,24 @@ class ContextManager:
         config["plot_version"] = str(current_version + 1)
         self.save_config(config)
 
+    def build_plot_block(
+        self,
+        *,
+        include_plot: bool = False,
+        plot_strength: str = "balanced",
+    ) -> str:
+        plot_ctx = self.get_plot_outline()
+        if not include_plot or not plot_ctx:
+            return ""
+
+        return f"""
+[PLOT OUTLINE] (?κ린 ?뚮’ 媛?대뱶)
+{plot_ctx}
+
+[?뚮’ 諛섏쁺 媛뺣룄]
+{plot_strength}
+"""
+
     def build_generation_prompt(
         self,
         user_instruction: str,
@@ -252,9 +270,8 @@ class ContextManager:
         char_ctx = self.get_character_context()
         continuity_ctx = self.get_continuity_context()
         state_ctx = self.get_state_context()
-        plot_ctx = self.get_plot_outline()
-        plot_block = ""
-        if include_plot and plot_ctx:
+        plot_block = self.build_plot_block(include_plot=include_plot, plot_strength=plot_strength)
+        if False:
             plot_block = f"""
 [PLOT OUTLINE] (장기 플롯 가이드)
 {plot_ctx}

@@ -160,6 +160,12 @@ def render_automation_tab(app) -> None:
     context_updates = config.get("context_updates", {})
     default_auto_state = bool(context_updates.get("state", True))
     default_auto_summary = bool(context_updates.get("summary", True))
+    generation_options = config.get("generation_options", {})
+    default_use_plot = bool(generation_options.get("include_plot", False))
+    default_plot_strength = str(generation_options.get("plot_strength", "balanced") or "balanced")
+    if default_plot_strength not in {"loose", "balanced", "strict"}:
+        default_plot_strength = "balanced"
+    saved_plot_outline = app.generator.ctx.get_plot_outline()
 
     enabled = st.checkbox("자동화 활성화", value=config.get("enabled", False), key="automation_enabled")
     auto_update_state = st.checkbox(
@@ -172,6 +178,23 @@ def render_automation_tab(app) -> None:
         value=default_auto_summary,
         key="automation_auto_update_summary",
     )
+
+    auto_use_plot = st.checkbox(
+        "저장한 대형 플롯을 자동화 생성/검수 흐름에 반영",
+        value=default_use_plot,
+        key="automation_use_plot",
+        disabled=not bool(saved_plot_outline),
+    )
+    st.selectbox(
+        "플롯 반영 강도",
+        options=["loose", "balanced", "strict"],
+        index=["loose", "balanced", "strict"].index(default_plot_strength),
+        key="automation_plot_strength",
+        disabled=not auto_use_plot,
+        help="loose: 참고만 / balanced: 권장 / strict: 플롯 우선",
+    )
+    if not saved_plot_outline:
+        st.caption("저장한 플롯이 없어 플롯 반영 옵션은 비활성화되어 있습니다. [1] 프로젝트 통합 설정 > 대형 플롯에서 먼저 생성해 주세요.")
 
     selected_type = st.selectbox(
         "스케줄 방식",
@@ -224,6 +247,10 @@ def render_automation_tab(app) -> None:
         config["context_updates"] = {
             "state": st.session_state.get("automation_auto_update_state", default_auto_state),
             "summary": st.session_state.get("automation_auto_update_summary", default_auto_summary),
+        }
+        config["generation_options"] = {
+            "include_plot": st.session_state.get("automation_use_plot", default_use_plot),
+            "plot_strength": st.session_state.get("automation_plot_strength", default_plot_strength),
         }
         store.save_config(config)
         st.success("자동화 스케줄을 저장했습니다.")

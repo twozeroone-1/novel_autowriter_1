@@ -21,6 +21,10 @@ DEFAULT_AUTOMATION_CONFIG = {
         "state": True,
         "summary": True,
     },
+    "generation_options": {
+        "include_plot": False,
+        "plot_strength": "balanced",
+    },
     "poll_interval_seconds": 30,
 }
 
@@ -52,7 +56,19 @@ class AutomationStore:
     def load_config(self) -> dict:
         if not self.config_path.exists():
             return deepcopy(DEFAULT_AUTOMATION_CONFIG)
-        return deepcopy(DEFAULT_AUTOMATION_CONFIG) | self._read_json(self.config_path)
+
+        payload = self._read_json(self.config_path)
+        if not isinstance(payload, dict):
+            return deepcopy(DEFAULT_AUTOMATION_CONFIG)
+
+        merged = deepcopy(DEFAULT_AUTOMATION_CONFIG)
+        for key, value in payload.items():
+            default_value = merged.get(key)
+            if isinstance(default_value, dict) and isinstance(value, dict):
+                merged[key] = default_value | value
+            else:
+                merged[key] = value
+        return merged
 
     def save_config(self, config: dict) -> None:
         atomic_write_json(self.config_path, config)

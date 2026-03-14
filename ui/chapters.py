@@ -513,6 +513,24 @@ def render_review_tab(app: Any) -> None:
             draft_to_review = file_path.read_text(encoding="utf-8")
             review_title = selected_file.removesuffix(".md")
 
+    saved_plot_outline = generator.ctx.get_plot_outline()
+    review_use_plot = st.checkbox(
+        "저장한 대형 플롯을 이번 검수에 반영",
+        value=False,
+        key="review_use_plot",
+        disabled=not bool(saved_plot_outline),
+    )
+    review_plot_strength = st.selectbox(
+        "플롯 반영 강도",
+        options=["loose", "balanced", "strict"],
+        index=1,
+        key="review_plot_strength",
+        disabled=not review_use_plot,
+        help="loose: 참고만 / balanced: 권장 / strict: 플롯 우선",
+    )
+    if not saved_plot_outline:
+        st.caption("저장한 플롯이 없어 검수용 플롯 반영 옵션은 비활성화되어 있습니다. [1] 프로젝트 통합 설정 > 대형 플롯에서 먼저 생성해 주세요.")
+
     if draft_to_review:
         st.subheader("검수 대상 원고")
         edited_draft_to_review = st.text_area(
@@ -523,7 +541,11 @@ def render_review_tab(app: Any) -> None:
 
         if st.button("현재 원고 검수 요청", type="primary"):
             report = run_with_status(
-                lambda: reviewer.review_chapter(edited_draft_to_review),
+                lambda: reviewer.review_chapter(
+                    edited_draft_to_review,
+                    include_plot=review_use_plot,
+                    plot_strength=review_plot_strength,
+                ),
                 "원고를 검토하는 중입니다...",
                 llm_error_prefix="검수 중 오류가 발생했습니다",
                 error_prefix="검수 중 예상치 못한 오류가 발생했습니다",
@@ -532,6 +554,8 @@ def render_review_tab(app: Any) -> None:
                 st.session_state["review_report"] = report
                 st.session_state["reviewing_draft"] = edited_draft_to_review
                 st.session_state["reviewing_title"] = review_title
+                st.session_state["review_report_use_plot"] = review_use_plot
+                st.session_state["review_report_plot_strength"] = review_plot_strength
                 st.session_state.pop("revised_draft", None)
                 st.session_state.pop("edited_revised_draft", None)
 
@@ -558,10 +582,14 @@ def render_review_tab(app: Any) -> None:
         st.divider()
         st.subheader("리포트 반영")
         if st.button("리포트를 반영한 수정본 생성", type="primary"):
+            report_use_plot = bool(st.session_state.get("review_report_use_plot", False))
+            report_plot_strength = str(st.session_state.get("review_report_plot_strength", "balanced"))
             revised = run_with_status(
                 lambda: reviewer.revise_draft(
                     st.session_state.get("reviewing_draft", draft_to_review),
                     st.session_state["review_report"],
+                    include_plot=report_use_plot,
+                    plot_strength=report_plot_strength,
                 ),
                 "검수 피드백을 반영한 수정본을 생성하는 중입니다...",
                 llm_error_prefix="수정본 생성 중 오류가 발생했습니다",
@@ -686,6 +714,24 @@ def render_auto_mode_tab(app: Any) -> None:
         st.text_input("회차 제목 (저장 파일명)", value="3화 새로운 조짐", key="auto_title")
         st.number_input("생성 분량(글자수 목표)", min_value=500, max_value=20000, value=5000, step=500, key="auto_len")
 
+        saved_plot_outline = generator.ctx.get_plot_outline()
+        auto_use_plot = st.checkbox(
+            "저장한 대형 플롯을 이번 반자동 파이프라인에 반영",
+            value=False,
+            key="auto_use_plot",
+            disabled=not bool(saved_plot_outline),
+        )
+        st.selectbox(
+            "플롯 반영 강도",
+            options=["loose", "balanced", "strict"],
+            index=1,
+            key="auto_plot_strength",
+            disabled=not auto_use_plot,
+            help="loose: 참고만 / balanced: 권장 / strict: 플롯 우선",
+        )
+        if not saved_plot_outline:
+            st.caption("저장한 플롯이 없어 플롯 반영 옵션은 비활성화되어 있습니다. [1] 프로젝트 통합 설정 > 대형 플롯에서 먼저 생성해 주세요.")
+
         if st.button("반자동 파이프라인 실행", type="primary", use_container_width=True):
             if not ensure_api_key():
                 pass
@@ -702,6 +748,8 @@ def render_auto_mode_tab(app: Any) -> None:
                 st.session_state["auto_title"],
                 st.session_state["auto_inst"],
                 st.session_state["auto_len"],
+                include_plot=bool(st.session_state.get("auto_use_plot", False)),
+                plot_strength=str(st.session_state.get("auto_plot_strength", "balanced")),
                 step_context=st.spinner,
             )
             st.session_state["auto_result"] = result

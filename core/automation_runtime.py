@@ -49,6 +49,9 @@ class AutomationRuntime:
         self.store.save_runtime(runtime)
 
         max_attempts = int(config.get("retry_policy", {}).get("max_attempts", 2))
+        generation_options = config.get("generation_options", {})
+        include_plot = bool(generation_options.get("include_plot", False))
+        plot_strength = str(generation_options.get("plot_strength", "balanced") or "balanced")
         last_error = ""
         for _ in range(max_attempts):
             job["attempt_count"] = int(job.get("attempt_count", 0)) + 1
@@ -57,6 +60,8 @@ class AutomationRuntime:
                     chapter_title=job.get("title", ""),
                     instruction=job.get("instruction", ""),
                     target_length=int(job.get("target_length", 5000)),
+                    include_plot=include_plot,
+                    plot_strength=plot_strength,
                 )
                 context_update = self._apply_context_updates(result, config)
                 job["status"] = "done"

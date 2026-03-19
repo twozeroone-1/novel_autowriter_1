@@ -10,6 +10,7 @@ import streamlit as st
 from core.generator import Generator
 from core.llm import LLMError
 from core.llm_backend import GeminiCliStatus, get_backend_gate_error, probe_gemini_cli, resolve_backend_mode
+from core.runtime import is_cloud_runtime
 from core.token_budget import (
     estimate_generation_cost_report,
     get_budget_recommendations,
@@ -113,6 +114,15 @@ def open_folder(path: Path) -> None:
     st.error("현재 환경에서는 폴더 열기를 지원하지 않습니다.")
 
 
+def should_show_local_folder_actions(is_cloud: bool) -> bool:
+    return not is_cloud
+
+
+def format_saved_document_notice(saved_path: str, is_cloud: bool) -> str:
+    prefix = "클라우드 저장 완료" if is_cloud else "저장 완료"
+    return f"{prefix}: `{saved_path}`"
+
+
 def sync_summary_after_save(generator: Generator, chapter_content: str, save_label: str) -> None:
     with st.spinner("저장한 내용을 다음 회차용 컨텍스트에 반영하는 중입니다..."):
         try:
@@ -170,7 +180,10 @@ def save_markdown_document_and_notify(
         st.error(f"{error_prefix}: {exc}")
         return None
 
-    st.success(f"{success_prefix}: `{saved_path}`")
+    if is_cloud_runtime():
+        st.success(f"{success_prefix} (클라우드): `{saved_path}`")
+    else:
+        st.success(f"{success_prefix}: `{saved_path}`")
     return saved_path
 
 
@@ -189,7 +202,10 @@ def save_chapter_and_notify(
         st.error(f"{error_prefix}: {exc}")
         return None
 
-    st.success(f"{success_prefix}: `{saved_path}`")
+    if is_cloud_runtime():
+        st.success(f"{success_prefix} (클라우드): `{saved_path}`")
+    else:
+        st.success(f"{success_prefix}: `{saved_path}`")
     if summary_failure_prefix:
         st.info("저장된 원고의 컨텍스트 반영은 AI 제안 검토 후 진행하도록 바뀌었습니다.")
     return saved_path
@@ -306,12 +322,14 @@ def render_generation_budget_panel(
 
 def render_generation_tab(app: Any) -> None:
     generator = app.generator
+    cloud_runtime = is_cloud_runtime()
 
     st.header("다음 회차 생성")
     st.caption("프로젝트 설정과 등장인물 정보가 자동으로 반영됩니다.")
-    with st.expander("반영되는 파일 보기", expanded=False):
-        st.code(app.config_path_hint, language="text")
-        st.code(app.chars_path_hint, language="text")
+    if should_show_local_folder_actions(cloud_runtime):
+        with st.expander("반영되는 파일 보기", expanded=False):
+            st.code(app.config_path_hint, language="text")
+            st.code(app.chars_path_hint, language="text")
 
     chapter_title = st.text_input("회차 제목 (저장 파일명)", value="2화 첫 만남")
     user_instruction = st.text_area(
@@ -358,7 +376,7 @@ def render_generation_tab(app: Any) -> None:
     with action_col:
         generate_btn = st.button("초안 생성", type="primary")
     with folder_col:
-        if st.button("저장 폴더 열기", key="open_folder_1"):
+        if should_show_local_folder_actions(cloud_runtime) and st.button("저장 폴더 열기", key="open_folder_1"):
             open_folder(generator.chapters_dir)
 
     if generate_btn:
@@ -408,7 +426,7 @@ def render_generation_tab(app: Any) -> None:
     with save_col:
         save_draft_btn = st.button("현재 초안 저장(.md)")
     with folder_col:
-        if st.button("저장 폴더 열기", key="open_folder_2"):
+        if should_show_local_folder_actions(cloud_runtime) and st.button("저장 폴더 열기", key="open_folder_2"):
             open_folder(generator.chapters_dir)
 
     if save_draft_btn:
@@ -481,6 +499,7 @@ def render_generation_tab(app: Any) -> None:
 def render_review_tab(app: Any) -> None:
     generator = app.generator
     reviewer = app.reviewer
+    cloud_runtime = is_cloud_runtime()
 
     st.header("원고 검수")
     st.markdown("세계관 충돌, 문맥 문제, 문장 완성도 기준으로 원고를 검토하고 수정본까지 만들 수 있습니다.")
@@ -491,11 +510,7 @@ def render_review_tab(app: Any) -> None:
         review_step = 1
     render_workflow_steps(("검수 대상 선택", "검수 리포트 생성", "수정본 저장"), review_step)
 
-    saved_files: list[str] = []
-    if generator.chapters_dir.exists():
-        saved_files = sorted(
-            file.name for file in generator.chapters_dir.iterdir() if file.is_file() and file.suffix == ".md"
-        )
+    saved_files = generator.list_saved_chapter_files()
 
     selected_file = st.selectbox("검수할 원고 파일 선택", options=["새로 생성한 초안 사용"] + saved_files)
 
@@ -508,10 +523,11 @@ def render_review_tab(app: Any) -> None:
         else:
             st.info("메모리에 초안이 없습니다. 저장된 파일을 고르거나 [2] 탭에서 먼저 생성해 주세요.")
     else:
-        file_path = generator.chapters_dir / selected_file
-        if file_path.exists():
-            draft_to_review = file_path.read_text(encoding="utf-8")
+        try:
+            draft_to_review = generator.read_saved_document(selected_file)
             review_title = selected_file.removesuffix(".md")
+        except FileNotFoundError:
+            draft_to_review = ""
 
     saved_plot_outline = generator.ctx.get_plot_outline()
     review_use_plot = st.checkbox(
@@ -576,7 +592,7 @@ def render_review_tab(app: Any) -> None:
                     success_prefix="리포트를 저장했습니다",
                 )
         with folder_col:
-            if st.button("저장 폴더 열기", key="open_folder_report"):
+            if should_show_local_folder_actions(cloud_runtime) and st.button("저장 폴더 열기", key="open_folder_report"):
                 open_folder(generator.chapters_dir)
 
         st.divider()
@@ -619,7 +635,7 @@ def render_review_tab(app: Any) -> None:
     with save_col:
         save_revised_btn = st.button("수정본 저장(.md)")
     with folder_col:
-        if st.button("저장 폴더 열기", key="open_folder_3"):
+        if should_show_local_folder_actions(cloud_runtime) and st.button("저장 폴더 열기", key="open_folder_3"):
             open_folder(generator.chapters_dir)
 
     if save_revised_btn:

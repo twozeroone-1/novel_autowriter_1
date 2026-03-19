@@ -23,6 +23,7 @@ from core.generator import Generator
 from core.llm import LLMError
 from core.llm_backend import GeminiCliStatus, probe_gemini_cli, resolve_backend_mode, test_gemini_cli_connection
 from core.model_catalog import get_available_models
+from core.runtime import is_cloud_runtime
 from core.token_budget import find_latest_sample_chapter, get_budget_recommendations, get_field_stats
 from ui.automation import format_runtime_status, format_schedule_summary
 from ui.diagnostics import format_sidebar_summary, get_sidebar_summary, render_diagnostics_panel
@@ -68,6 +69,22 @@ BACKEND_MODE_OPTIONS = {
     "api": "Gemini API만 사용",
     "cli": "Gemini CLI만 사용",
 }
+
+
+def get_api_settings_mode(is_cloud: bool) -> dict[str, bool]:
+    if is_cloud:
+        return {
+            "allow_runtime_key": True,
+            "allow_secure_storage": False,
+            "allow_env_persistence": False,
+            "allow_cli_controls": False,
+        }
+    return {
+        "allow_runtime_key": True,
+        "allow_secure_storage": True,
+        "allow_env_persistence": True,
+        "allow_cli_controls": True,
+    }
 
 
 def format_cli_status(status: GeminiCliStatus) -> str:
@@ -507,18 +524,29 @@ def render_sidebar(
                     st.error(f"작품 삭제 중 오류가 발생했습니다: {exc}")
 
         runtime_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+        cloud_runtime = is_cloud_runtime()
+        api_settings_mode = get_api_settings_mode(cloud_runtime)
         secure_storage_available = has_secure_storage()
         secure_api_key_exists = bool(get_secure_api_key())
         plain_env_key_exists = env_file_has_key()
         current_backend_mode = resolve_backend_mode(os.getenv("GEMINI_BACKEND", "auto"))
         current_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        detected_cli_status = probe_gemini_cli()
-        stored_cli_status = st.session_state.get("gemini_cli_status")
-        if isinstance(stored_cli_status, GeminiCliStatus) and stored_cli_status.path == detected_cli_status.path:
-            cli_status = replace(stored_cli_status, version=detected_cli_status.version or stored_cli_status.version)
+        if api_settings_mode["allow_cli_controls"]:
+            detected_cli_status = probe_gemini_cli()
+            stored_cli_status = st.session_state.get("gemini_cli_status")
+            if isinstance(stored_cli_status, GeminiCliStatus) and stored_cli_status.path == detected_cli_status.path:
+                cli_status = replace(stored_cli_status, version=detected_cli_status.version or stored_cli_status.version)
+            else:
+                cli_status = detected_cli_status
+                st.session_state["gemini_cli_status"] = cli_status
         else:
-            cli_status = detected_cli_status
-            st.session_state["gemini_cli_status"] = cli_status
+            cli_status = GeminiCliStatus(
+                available=False,
+                authenticated=None,
+                path="",
+                version="",
+                message="클라우드 모드에서는 Gemini CLI를 지원하지 않습니다.",
+            )
 
         st.divider()
         diagnostics_summary = get_sidebar_summary(st.session_state["current_project"])
@@ -534,7 +562,10 @@ def render_sidebar(
         else:
             st.caption("API 상태: 설정 안 됨")
         st.caption(f"LLM 백엔드: {BACKEND_MODE_OPTIONS[current_backend_mode]}")
-        st.caption(f"Gemini CLI 상태: {format_cli_status(cli_status)}")
+        if api_settings_mode["allow_cli_controls"]:
+            st.caption(f"Gemini CLI 상태: {format_cli_status(cli_status)}")
+        elif cloud_runtime:
+            st.caption("Gemini CLI 상태: 클라우드 모드에서 숨김")
 
         with st.expander("API / 모델 설정", expanded=False):
             if secure_api_key_exists:
@@ -553,44 +584,54 @@ def render_sidebar(
                 type="password",
                 help="쉼표로 여러 키를 넣으면 순차적으로 fallback 됩니다.",
             )
-            runtime_col, secure_col = st.columns(2)
+            if api_settings_mode["allow_secure_storage"]:
+                runtime_col, secure_col = st.columns(2)
+            else:
+                runtime_col = st.container()
+                secure_col = None
+
             with runtime_col:
                 if st.button("이번 실행에만 적용", use_container_width=True):
                     if new_api_key.strip():
                         set_runtime_api_key(new_api_key.strip())
                         st.success("API 키를 현재 실행에만 적용했습니다. 앱을 재시작하면 사라집니다.")
                         st.rerun()
-            with secure_col:
-                secure_button_disabled = not secure_storage_available
-                if st.button("보안 저장소에 저장", use_container_width=True, disabled=secure_button_disabled):
-                    ok, message = save_api_key_to_secure_storage(new_api_key.strip())
-                    if ok:
-                        load_dotenv(override=True)
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
 
-            if not secure_storage_available:
-                st.info("보안 저장소를 사용하려면 `keyring`이 필요합니다. 현재는 평문 저장 없이 런타임 적용만 가능합니다.")
+            if api_settings_mode["allow_secure_storage"] and secure_col is not None:
+                with secure_col:
+                    secure_button_disabled = not secure_storage_available
+                    if st.button("보안 저장소에 저장", use_container_width=True, disabled=secure_button_disabled):
+                        ok, message = save_api_key_to_secure_storage(new_api_key.strip())
+                        if ok:
+                            load_dotenv(override=True)
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
 
-            if secure_api_key_exists:
-                if st.button("보안 저장소의 API 키 삭제", use_container_width=True):
-                    ok, message = delete_api_key_from_secure_storage()
-                    if ok:
-                        st.success(message)
-                        st.rerun()
-                    else:
-                        st.error(message)
+                if not secure_storage_available:
+                    st.info("보안 저장소를 사용하려면 `keyring`이 필요합니다. 현재는 평문 저장 없이 런타임 적용만 가능합니다.")
 
-            with st.expander("고급: 평문 `.env` 저장", expanded=False):
-                st.warning("이 옵션은 API 키를 프로젝트의 `.env` 파일에 평문으로 저장합니다.")
-                if st.button("그래도 `.env`에 저장", use_container_width=True):
-                    if new_api_key.strip():
-                        set_env_variable("GOOGLE_API_KEY", new_api_key.strip())
-                        load_dotenv(override=True)
-                        st.success("API 키를 `.env`에 저장했습니다.")
-                        st.rerun()
+                if secure_api_key_exists:
+                    if st.button("보안 저장소의 API 키 삭제", use_container_width=True):
+                        ok, message = delete_api_key_from_secure_storage()
+                        if ok:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
+            elif cloud_runtime:
+                st.caption("클라우드 모드에서는 보안 저장소와 `.env` 저장을 숨깁니다. Streamlit Secrets를 사용하세요.")
+
+            if api_settings_mode["allow_env_persistence"]:
+                with st.expander("고급: 평문 `.env` 저장", expanded=False):
+                    st.warning("이 옵션은 API 키를 프로젝트의 `.env` 파일에 평문으로 저장합니다.")
+                    if st.button("그래도 `.env`에 저장", use_container_width=True):
+                        if new_api_key.strip():
+                            set_env_variable("GOOGLE_API_KEY", new_api_key.strip())
+                            load_dotenv(override=True)
+                            st.success("API 키를 `.env`에 저장했습니다.")
+                            st.rerun()
 
             available_models = get_available_models()
             selected_model = st.selectbox(
@@ -618,27 +659,28 @@ def render_sidebar(
                 st.success(f"LLM 백엔드를 '{BACKEND_MODE_OPTIONS[selected_backend_mode]}'로 변경했습니다.")
                 st.rerun()
 
-            st.caption("Gemini CLI는 사용자가 별도로 OAuth 로그인해 둔 공식 CLI를 그대로 사용합니다.")
-            if cli_status.path:
-                st.code(cli_status.path, language="text")
-            if cli_status.version:
-                st.caption(f"Gemini CLI 버전: {cli_status.version}")
-            if cli_status.message:
-                st.caption(cli_status.message)
+            if api_settings_mode["allow_cli_controls"]:
+                st.caption("Gemini CLI는 사용자가 별도로 OAuth 로그인해 둔 공식 CLI를 그대로 사용합니다.")
+                if cli_status.path:
+                    st.code(cli_status.path, language="text")
+                if cli_status.version:
+                    st.caption(f"Gemini CLI 버전: {cli_status.version}")
+                if cli_status.message:
+                    st.caption(cli_status.message)
 
-            if st.button("CLI 연결 테스트", use_container_width=True):
-                with st.spinner("Gemini CLI 연결을 확인하는 중입니다..."):
-                    tested_status = test_gemini_cli_connection(selected_model, executable_path=cli_status.path)
-                st.session_state["gemini_cli_status"] = tested_status
-                if tested_status.authenticated is True:
-                    st.success("Gemini CLI OAuth 연결이 정상입니다.")
-                elif tested_status.authenticated is False:
-                    st.warning(tested_status.message)
-                elif not tested_status.available:
-                    st.error(tested_status.message)
-                else:
-                    st.info(tested_status.message)
-                st.rerun()
+                if st.button("CLI 연결 테스트", use_container_width=True):
+                    with st.spinner("Gemini CLI 연결을 확인하는 중입니다..."):
+                        tested_status = test_gemini_cli_connection(selected_model, executable_path=cli_status.path)
+                    st.session_state["gemini_cli_status"] = tested_status
+                    if tested_status.authenticated is True:
+                        st.success("Gemini CLI OAuth 연결이 정상입니다.")
+                    elif tested_status.authenticated is False:
+                        st.warning(tested_status.message)
+                    elif not tested_status.available:
+                        st.error(tested_status.message)
+                    else:
+                        st.info(tested_status.message)
+                    st.rerun()
 
             st.link_button(
                 "토큰 사용량 보기",

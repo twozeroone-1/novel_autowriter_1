@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from core.app_paths import DATA_PROJECTS_DIR
-from core.file_utils import atomic_write_json
+from core.storage import ProjectStorage, build_project_storage
 
 
 BASE_DATA_DIR = DATA_PROJECTS_DIR
@@ -18,11 +18,14 @@ DEFAULT_CONFIG = {
 
 
 class ContextManager:
-    def __init__(self, project_name: str = "default_project"):
+    def __init__(self, project_name: str = "default_project", storage: ProjectStorage | None = None):
         self.project_name = project_name
-        self.data_dir = BASE_DATA_DIR / self.project_name
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        (self.data_dir / "chapters").mkdir(exist_ok=True)
+        self.storage = storage or build_project_storage(BASE_DATA_DIR)
+        project_root = self.storage.project_root(self.project_name)
+        self.data_dir = project_root or (BASE_DATA_DIR / self.project_name)
+        if project_root is not None:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            (self.data_dir / "chapters").mkdir(exist_ok=True)
 
         self.config_path = self.data_dir / "config.json"
         self.chars_path = self.data_dir / "characters.json"
@@ -40,11 +43,12 @@ class ContextManager:
         return []
 
     def _load_json(self, path: Path) -> dict | list:
-        if not path.exists():
+        relative_path = path.relative_to(self.data_dir).as_posix()
+        if not self.storage.exists(self.project_name, relative_path):
             return self._default_value_for(path)
 
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(self.storage.read_text(self.project_name, relative_path))
         except (OSError, json.JSONDecodeError) as exc:
             print(f"[ContextManager] Failed to load {path}: {exc}")
             return self._default_value_for(path)
@@ -157,7 +161,12 @@ class ContextManager:
         return self._normalize_characters(self._load_json(self.chars_path))
 
     def save_config(self, config_data: dict) -> None:
-        atomic_write_json(self.config_path, self._normalize_config(config_data))
+        normalized = self._normalize_config(config_data)
+        self.storage.write_text(
+            self.project_name,
+            self.config_path.relative_to(self.data_dir).as_posix(),
+            json.dumps(normalized, ensure_ascii=False, indent=4),
+        )
 
     def save_characters(self, chars_data: list) -> None:
         if not isinstance(chars_data, list):
@@ -167,7 +176,11 @@ class ContextManager:
         if len(normalized_chars) != len(chars_data):
             raise ValueError("등장인물 데이터에 잘못된 항목이 있습니다. id/name/role/description/traits가 필요합니다.")
 
-        atomic_write_json(self.chars_path, normalized_chars)
+        self.storage.write_text(
+            self.project_name,
+            self.chars_path.relative_to(self.data_dir).as_posix(),
+            json.dumps(normalized_chars, ensure_ascii=False, indent=4),
+        )
 
     def build_updated_summary_text(self, new_summary: str, generator_instance=None) -> str:
         old_summary = self.get_config().get("summary_of_previous", "").strip()

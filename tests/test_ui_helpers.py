@@ -7,13 +7,21 @@ from ui.app import (
     PROJECT_SETTINGS_SUBSECTION_LABELS,
     PROJECT_STATE_KEYS,
     PROJECT_TAB_LABELS,
+    get_project_tab_labels,
     normalize_project_name,
 )
-from ui.chapters import build_session_bound_text_area_kwargs, build_workflow_steps, select_context_update_value
+from ui.chapters import (
+    build_session_bound_text_area_kwargs,
+    build_workflow_steps,
+    format_saved_document_notice,
+    select_context_update_value,
+    should_show_local_folder_actions,
+)
 from ui.workspace import (
     ProjectFieldSpec,
     apply_pending_project_textarea_updates,
     build_project_field_panels,
+    get_api_settings_mode,
     resolve_summary_suggestion_source,
     summarize_text_preview,
 )
@@ -218,6 +226,51 @@ class TestUiHelpers(unittest.TestCase):
                 "[5] 자동화 연재 모드",
                 "[6] 외부 플랫폼 업로드",
             ),
+        )
+
+    def test_get_project_tab_labels_hides_automation_and_upload_in_cloud(self):
+        self.assertEqual(
+            get_project_tab_labels(is_cloud=True),
+            (
+                "[1] 프로젝트 통합 설정",
+                "[2] 회차 생성",
+                "[3] 원고 검수",
+                "[4] 반자동 연재 모드",
+            ),
+        )
+
+    def test_should_show_local_folder_actions_false_in_cloud(self):
+        self.assertFalse(should_show_local_folder_actions(True))
+        self.assertTrue(should_show_local_folder_actions(False))
+
+    def test_format_saved_document_notice_uses_cloud_message(self):
+        self.assertEqual(
+            format_saved_document_notice("chapters/1화.md", True),
+            "클라우드 저장 완료: `chapters/1화.md`",
+        )
+        self.assertEqual(
+            format_saved_document_notice("C:/tmp/1화.md", False),
+            "저장 완료: `C:/tmp/1화.md`",
+        )
+
+    def test_get_api_settings_mode_disables_keyring_env_and_cli_in_cloud(self):
+        self.assertEqual(
+            get_api_settings_mode(True),
+            {
+                "allow_runtime_key": True,
+                "allow_secure_storage": False,
+                "allow_env_persistence": False,
+                "allow_cli_controls": False,
+            },
+        )
+        self.assertEqual(
+            get_api_settings_mode(False),
+            {
+                "allow_runtime_key": True,
+                "allow_secure_storage": True,
+                "allow_env_persistence": True,
+                "allow_cli_controls": True,
+            },
         )
 
     def test_project_settings_subsection_labels_follow_secondary_navigation_order(self):

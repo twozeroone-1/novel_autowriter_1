@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import core.context as context_module
 from core.context import ContextManager
+from core.storage import InMemoryProjectStorage
 
 
 class TestContextManager(unittest.TestCase):
@@ -188,6 +189,37 @@ class TestContextManager(unittest.TestCase):
 
                 self.assertNotIn("plot outline text", prompt)
                 self.assertNotIn("[PLOT OUTLINE]", prompt)
+
+    def test_context_manager_uses_storage_backend_for_config_round_trip(self):
+        storage = InMemoryProjectStorage()
+        manager = ContextManager(project_name="sample", storage=storage)
+
+        manager.save_config({**context_module.DEFAULT_CONFIG, "worldview": "cloud worldview"})
+
+        self.assertEqual(manager.get_config()["worldview"], "cloud worldview")
+        self.assertIn("config.json", storage.list_paths("sample", ""))
+
+    def test_context_manager_uses_storage_backend_for_characters_round_trip(self):
+        storage = InMemoryProjectStorage()
+        manager = ContextManager(project_name="sample", storage=storage)
+
+        manager.save_characters(
+            [
+                {
+                    "id": "char_001",
+                    "name": "Hero",
+                    "role": "Lead",
+                    "description": "Main character",
+                    "traits": ["calm"],
+                }
+            ]
+        )
+
+        characters = manager.get_characters()
+
+        self.assertEqual(len(characters), 1)
+        self.assertEqual(characters[0]["name"], "Hero")
+        self.assertIn("characters.json", storage.list_paths("sample", ""))
 
 
 if __name__ == "__main__":

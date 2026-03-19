@@ -5,14 +5,17 @@ from pathlib import Path
 from core.file_utils import atomic_write_text
 from core.llm import _extract_first_json_value, generate_text
 from core.context import ContextManager
+from core.storage import ProjectStorage
 
 class Generator:
-    def __init__(self, project_name: str = "default_project"):
+    def __init__(self, project_name: str = "default_project", storage: ProjectStorage | None = None):
         # ContextManager에 project_name 주입
-        self.ctx = ContextManager(project_name=project_name)
+        self.ctx = ContextManager(project_name=project_name, storage=storage)
+        self.storage = self.ctx.storage
         # ContextManager가 생성한 동적 경로를 참조
         self.chapters_dir = self.ctx.data_dir / "chapters"
-        self.chapters_dir.mkdir(parents=True, exist_ok=True)
+        if self.storage.project_root(self.ctx.project_name) is not None:
+            self.chapters_dir.mkdir(parents=True, exist_ok=True)
         
     def create_chapter(
         self,
@@ -57,14 +60,20 @@ class Generator:
         markdown_text = content
         if heading_title:
             markdown_text = f"# {heading_title}\n\n{content}"
-        atomic_write_text(filepath, markdown_text)
-        return str(filepath)
+        if isinstance(filepath, Path):
+            atomic_write_text(filepath, markdown_text)
+            return str(filepath)
 
-    def build_output_path(self, title: str, suffix: str = ".md") -> Path:
+        self.storage.write_text(self.ctx.project_name, filepath, markdown_text)
+        return filepath
+
+    def build_output_path(self, title: str, suffix: str = ".md") -> Path | str:
         """제목을 안전한 파일명으로 바꿔 중복 없는 출력 경로를 만듭니다."""
         safe_title = self._build_safe_title(title)
         if not safe_title:
             safe_title = "연재_" + datetime.now().strftime("%Y%m%d%H%M%S")
+        if self.storage.project_root(self.ctx.project_name) is None:
+            return self._build_unique_storage_path(safe_title, suffix)
         return self._build_unique_filepath(safe_title, suffix)
 
     def _build_safe_title(self, title: str) -> str:
@@ -84,6 +93,40 @@ class Generator:
             if not candidate.exists():
                 return candidate
             counter += 1
+
+    def _build_unique_storage_path(self, safe_title: str, suffix: str) -> str:
+        candidate = f"chapters/{safe_title}{suffix}"
+        if not self.storage.exists(self.ctx.project_name, candidate):
+            return candidate
+
+        counter = 2
+        while True:
+            candidate = f"chapters/{safe_title}_{counter}{suffix}"
+            if not self.storage.exists(self.ctx.project_name, candidate):
+                return candidate
+            counter += 1
+
+    def list_saved_chapter_files(self) -> list[str]:
+        if self.storage.project_root(self.ctx.project_name) is not None:
+            if not self.chapters_dir.exists():
+                return []
+            return sorted(
+                path.name
+                for path in self.chapters_dir.iterdir()
+                if path.is_file() and path.suffix == ".md"
+            )
+
+        return sorted(
+            Path(relative_path).name
+            for relative_path in self.storage.list_paths(self.ctx.project_name, "chapters")
+            if relative_path.endswith(".md")
+        )
+
+    def read_saved_document(self, filename: str) -> str:
+        relative_path = f"chapters/{filename}"
+        if self.storage.project_root(self.ctx.project_name) is not None:
+            return (self.chapters_dir / filename).read_text(encoding="utf-8")
+        return self.storage.read_text(self.ctx.project_name, relative_path)
         
     def summarize_chapter(self, chapter_content: str) -> str:
         """작성된 회차의 핵심 내용을 짧게 요약합니다."""

@@ -191,6 +191,81 @@ GEMINI_MODEL="gemini-3-flash-preview"
 
 여러 API 키를 fallback 용도로 넣고 싶다면 쉼표(`,`)로 구분할 수 있습니다.
 
+### Streamlit Community Cloud로 무료 배포하기
+
+이 앱은 Community Cloud에서는 `수동/반자동 작업용`으로 쓰는 것을 권장합니다.
+
+중요:
+
+- `[5] 자동화 연재 모드`와 `[6] 외부 플랫폼 업로드`는 클라우드 모드에서 숨겨집니다.
+- 작품 데이터는 서버 로컬 디스크 대신 GitHub 저장소에 저장하도록 설정해야 합니다.
+- Gemini CLI, `.env` 저장, `keyring` 저장은 클라우드 모드에서 숨겨집니다.
+
+#### 1. Community Cloud용 데이터 저장소 준비
+
+1. GitHub에 비공개 저장소 하나를 새로 만듭니다.
+2. 이 저장소는 작품 데이터(JSON/Markdown)만 저장하는 용도로 쓰는 편이 안전합니다.
+3. GitHub Personal Access Token(PAT)을 하나 준비합니다.
+
+필요 권한:
+
+- 해당 저장소 `Contents` 읽기/쓰기
+
+#### 2. 앱 저장소를 Community Cloud에 연결
+
+1. Streamlit Community Cloud에서 이 저장소를 선택합니다.
+2. 메인 파일은 `main.py`로 지정합니다.
+3. Python 버전은 기본값으로 두어도 되지만, 로컬과 너무 다르지 않은 버전을 권장합니다.
+
+#### 3. Secrets 설정
+
+Community Cloud의 앱 설정에서 `Secrets`에 아래 값을 넣으세요.
+
+예시는 [.streamlit/secrets.toml.example](./.streamlit/secrets.toml.example) 파일에도 있습니다.
+
+```toml
+APP_RUNTIME = "community_cloud"
+GOOGLE_API_KEY = "your_google_api_key"
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_BACKEND = "api"
+GITHUB_STORAGE_REPO = "owner/private-data-repo"
+GITHUB_STORAGE_TOKEN = "github_pat_xxx"
+```
+
+설명:
+
+- `APP_RUNTIME`: 클라우드 제한 모드를 켭니다.
+- `GOOGLE_API_KEY`: Gemini API 호출용 키입니다.
+- `GITHUB_STORAGE_REPO`: 작품 데이터를 저장할 비공개 저장소입니다.
+- `GITHUB_STORAGE_TOKEN`: 위 저장소에 쓸 수 있는 토큰입니다.
+
+#### 4. 클라우드에서 가능한 일
+
+- 작품 설정 작성
+- 아이디어/플롯 작업
+- 회차 생성
+- 원고 검수
+- 반자동 흐름 사용
+- 저장 후 다시 불러오기
+
+#### 5. 클라우드에서 빠진 기능
+
+- 자동화 연재 스케줄
+- 외부 플랫폼 자동 업로드
+- 로컬 폴더 열기
+- `.env` / `keyring` / Gemini CLI 기반 설정
+
+#### 6. 추천 운영 방식
+
+가끔 접속해서 집필/검수만 할 거라면 Community Cloud로 충분합니다.
+
+하지만 아래가 필요하면 VPS가 더 맞습니다.
+
+- 항상 켜져 있는 예약 실행
+- 브라우저 기반 업로드 자동화
+- 서버 파일시스템을 직접 다루는 워크플로
+- 더 예측 가능한 장기 운영
+
 ### Gemini CLI 사용
 
 Gemini CLI를 쓰려면 먼저 사용자가 별도로 OAuth 로그인을 끝내야 합니다.

@@ -11,6 +11,7 @@ from core.file_utils import update_env_file
 from core.generator import Generator
 from core.planner import Planner
 from core.reviewer import Reviewer
+from core.runtime import is_cloud_runtime, load_streamlit_secrets_into_environment
 from ui.automation import AutomationBackgroundService, render_automation_tab
 from ui.chapters import (
     ensure_api_key,
@@ -32,6 +33,7 @@ from ui.workspace import (
 st.set_page_config(page_title="AI 소설 스튜디오", page_icon="📚", layout="wide")
 
 load_dotenv(override=True)
+load_streamlit_secrets_into_environment()
 load_secure_api_key_into_environment()
 
 PROJECT_STATE_KEYS = [
@@ -252,6 +254,12 @@ def build_app_services(project_name: str) -> AppServices:
     )
 
 
+def get_project_tab_labels(is_cloud: bool) -> tuple[str, ...]:
+    if is_cloud:
+        return PROJECT_TAB_LABELS[:4]
+    return PROJECT_TAB_LABELS
+
+
 def render_project_settings_hub(app: AppServices) -> None:
     st.caption("보조 메뉴")
 
@@ -297,8 +305,10 @@ def render_project_settings_hub(app: AppServices) -> None:
 
 
 def main() -> None:
-    get_automation_background_service()
-    get_publishing_background_service()
+    cloud_runtime = is_cloud_runtime()
+    if not cloud_runtime:
+        get_automation_background_service()
+        get_publishing_background_service()
 
     current_project = render_sidebar_panel(
         normalize_project_name=normalize_project_name,
@@ -314,26 +324,30 @@ def main() -> None:
 
     st.title(f"AI 소설 스튜디오 - [{current_project}]")
     st.markdown("현재 선택한 작품 환경에서 설정 관리, 회차 생성, 검수, 아이디어와 플롯 설계를 진행합니다.")
+    if cloud_runtime:
+        st.info("클라우드 버전은 수동/반자동 작업 전용입니다. 자동화 연재와 외부 플랫폼 업로드는 숨겨집니다.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(PROJECT_TAB_LABELS)
+    visible_tab_labels = get_project_tab_labels(cloud_runtime)
+    tabs = st.tabs(visible_tab_labels)
 
-    with tab1:
+    with tabs[0]:
         render_project_settings_hub(app)
 
-    with tab2:
+    with tabs[1]:
         render_generation_tab(app)
 
-    with tab3:
+    with tabs[2]:
         render_review_tab(app)
 
-    with tab4:
+    with tabs[3]:
         render_auto_mode_tab(app)
 
-    with tab5:
-        render_automation_tab(app)
+    if not cloud_runtime:
+        with tabs[4]:
+            render_automation_tab(app)
 
-    with tab6:
-        render_publishing_tab(app)
+        with tabs[5]:
+            render_publishing_tab(app)
 
 
 if __name__ == "__main__":
